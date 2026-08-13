@@ -505,9 +505,115 @@ stack. Essa recorrência é o que torna viável um catálogo agnóstico de tecno
 
 ## B) Construção da Skill
 
-> _Em construção — Etapa 2._
-> Documentará: decisões de design do `SKILL.md`, estrutura dos arquivos de referência, anti-patterns
-> incluídos no catálogo e sua justificativa, estratégia de agnosticismo de tecnologia e desafios encontrados.
+### Estrutura da skill
+
+```
+.claude/skills/refactor-arch/
+├── SKILL.md                                  # orquestração das 3 fases (~180 linhas)
+└── references/
+    ├── 01-project-analysis.md                # heurísticas de detecção (Fase 1)
+    ├── 02-antipattern-catalog.md             # 38 anti-patterns (Fase 2)
+    ├── 03-audit-report-template.md           # formato do relatório (Fase 2)
+    ├── 04-mvc-architecture.md                # regras do alvo MVC (Fase 3)
+    └── 05-refactoring-playbook.md            # 19 transformações antes/depois (Fase 3)
+```
+
+### Decisões de design
+
+**1. `SKILL.md` é prompt, referências são conhecimento.** O `SKILL.md` contém apenas o procedimento —
+o que fazer, em que ordem, o que imprimir, quando parar. Todo o conhecimento de domínio (sinais de
+detecção, severidades, exemplos de código) vive nos arquivos de referência, carregados **sob demanda por
+fase**. A tabela de referências no `SKILL.md` diz explicitamente *quando* ler cada arquivo, para não
+carregar o playbook de refatoração durante uma auditoria que talvez nem seja aprovada.
+
+**2. Cinco princípios inegociáveis no topo.** Antes das fases, o `SKILL.md` fixa as regras que valem
+para tudo: nada é modificado antes da confirmação, comportamento preservado, evidência obrigatória
+(`arquivo:linha`), adaptação ao ponto de partida e precedência de segurança. São as restrições que o
+agente mais tende a relaxar sob pressão de "terminar a tarefa".
+
+**3. O inventário de endpoints é o contrato.** A Fase 1 não serve só para imprimir um resumo bonito:
+ela produz a lista completa de endpoints que a Fase 3 tem obrigação de preservar e contra a qual será
+validada. Sem esse artefato, "a aplicação continua funcionando" vira opinião.
+
+**4. Baseline antes de editar (Fase 3.0).** A skill sobe a aplicação **original** e registra status e
+formato de resposta de cada endpoint antes de tocar em qualquer arquivo. É o que transforma a validação
+final em comparação objetiva em vez de "parece que subiu".
+
+**5. Severidade com regra de ajuste explícita.** Além da tabela do desafio, o catálogo define quando
+subir ou descer um nível (caminho crítico de dinheiro/credenciais, defeito sistêmico vs pontual, código
+morto) — evita tanto a inflação de severidade quanto o inverso.
+
+**6. Portão de confirmação como fim de turno.** A Fase 2 termina imprimindo o prompt `[y/n]` e
+**encerrando o turno**. Instruir "peça confirmação" sem instruir "pare aqui" costuma resultar em um
+agente que pergunta e responde a si mesmo na linha seguinte.
+
+### Anti-patterns do catálogo e por quê
+
+38 anti-patterns em 5 famílias (mínimo exigido: 8). A seleção saiu diretamente da análise manual — cada
+entrada foi observada em pelo menos um dos três projetos, com os sinais de detecção derivados do código
+real, não de listas genéricas de code smell.
+
+| Família | Qtd. | Por que entrou |
+|---|:--:|---|
+| **SEC** (01–09) | 9 | Os três projetos concentram seus achados CRITICAL em segurança, e todos derivam da falta de fronteira entre camadas — corrigi-los é consequência da refatoração |
+| **ARCH** (01–12) | 12 | Núcleo do desafio: God Class, negócio no controller, dados no controller, apresentação no model, estado global, ausência de DI e de composition root, fronteira transacional, contrato de erro |
+| **PERF** (01–05) | 5 | N+1 aparece nos três projetos; integridade referencial e cache sem limite vieram do projeto 2 |
+| **QUAL** (01–09) | 9 | Duplicação, exceção engolida, callback hell, magic numbers, `print` como log, código morto, nomenclatura |
+| **DEP** (01–03) | 3 | Requisito explícito: APIs deprecated com equivalente moderno — tabelas para stdlib, framework/ORM e dependências superadas |
+
+Distribuição de severidade: **CRITICAL** 8 · **HIGH** 11 · **MEDIUM** 12 · **LOW** 7.
+
+Três entradas merecem destaque porque não aparecem em catálogos convencionais e vieram da análise
+manual do projeto 3:
+
+- **ARCH-11 — Camada nominal.** Pasta não é camada. `task-manager-api` tem `models/`, `routes/`,
+  `services/` e viola MVC integralmente. Sem esse anti-pattern, uma auditoria automatizada classificaria
+  o projeto como "já organizado" e não encontraria nada.
+- **ARCH-12 — Abstração morta.** `Task.is_overdue()`, `process_task_data()` e `NotificationService`
+  existem e ninguém chama, enquanto as rotas reimplementam a mesma lógica. Código morto aqui não é
+  sujeira — é a prova de que a camada certa foi projetada e ignorada.
+- **ARCH-08 — Ausência de fronteira transacional.** Classificado como CRITICAL por causa do checkout do
+  projeto 2: uma falha no meio da cadeia deixa aluno matriculado sem pagamento registrado.
+
+### Como garanti que a skill é agnóstica de tecnologia
+
+| Estratégia | Implementação |
+|---|---|
+| **Detecção por manifesto, não por extensão** | Tabela de 10 manifestos (`requirements.txt`, `package.json`, `go.mod`, `pom.xml`, `Gemfile`, `composer.json`, `Cargo.toml`…) → linguagem, com os imports do código como confirmação |
+| **Sinais em duas formas** | Cada anti-pattern lista o sinal em pelo menos duas sintaxes (Python e JS/TS) e, quando cabe, o padrão `grep` genérico — ex.: SQL Injection cobre `+`, `%`, `.format()`, f-string e template literal |
+| **Vocabulário de camada, não de framework** | As regras falam em "camada de roteamento", "acesso a dados", "efeito colaterais"; a tabela de correspondência traduz para Blueprint/Router/`@Controller`/`urlpatterns` |
+| **Playbook bilíngue** | As 19 transformações alternam exemplos Python e JavaScript de propósito — o padrão é o mesmo, muda o vocabulário |
+| **Estrutura-alvo adaptativa** | A Fase 3 classifica o ponto de partida em 4 níveis (A monolito plano → D MVC adequado) e prescreve estratégia diferente para cada um, incluindo "não reestruture o que já está certo" |
+| **Convenção do projeto prevalece** | Em projeto que já usa `routes/` e `services/`, a skill mantém a nomenclatura em vez de renomear para `views/`/`controllers/` — renomear pasta custa mais do que entrega |
+
+### Desafios encontrados e como resolvi
+
+**Desafio 1 — "Já tem pastas MVC" ≠ "é MVC".** A primeira versão do catálogo detectava arquitetura pela
+árvore de diretórios, o que daria zero findings arquiteturais no projeto 3. **Solução:** a Referência 1
+mapeia responsabilidades **por arquivo** (8 categorias: roteamento, HTTP I/O, validação, negócio, dados,
+apresentação, infra, config) e classifica pelo que o código faz. Um arquivo com 4+ responsabilidades é
+God Class, esteja ele em `routes/` ou na raiz. Daí nasceu o ARCH-11.
+
+**Desafio 2 — a mesma transformação não serve para monolito e para projeto semi-organizado.** Aplicar a
+árvore-alvo completa em `task-manager-api` significaria renomear `routes/` para `views/` sem ganho real.
+**Solução:** os 4 níveis de partida (A–D) com estratégia distinta, e uma seção de **anti-regras** no
+guideline de arquitetura: não criar camada vazia, não trocar framework/banco, não implementar
+funcionalidade nova sob o nome de refatoração, não dividir arquivo pequeno de responsabilidade única.
+
+**Desafio 3 — provar que "não quebrou" sem suíte de testes.** Nenhum dos três projetos tem testes.
+**Solução:** o baseline da Fase 3.0 (golden master informal) — status code e formato de resposta de cada
+endpoint capturados antes das alterações, comparados depois, incluindo pelo menos um caminho de erro
+(400 e 404).
+
+**Desafio 4 — onde termina refatoração e começa feature.** "Autenticação falsa" é achado CRITICAL, mas
+implementar JWT completo é funcionalidade nova, não refatoração. **Solução:** o RF-19 delimita
+explicitamente — remover a superfície indefensável, parar de simular autenticação, deixar o ponto de
+extensão pronto (decorator/middleware) e registrar a implementação completa na seção "Fora de escopo"
+do relatório. O template de relatório tem essa seção obrigatória.
+
+**Desafio 5 — o risco de o agente "pedir confirmação" e continuar.** **Solução:** instrução explícita de
+encerrar o turno após o prompt, preferindo `AskUserQuestion`, com a regra reforçada no princípio nº 1 e
+repetida na lista de erros comuns do template de relatório.
 
 ## C) Resultados
 
