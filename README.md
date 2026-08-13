@@ -981,6 +981,87 @@ um único lugar, com a recomendação registrada; elevá-la virou uma alteraçã
 
 ---
 
+### Logs das aplicações rodando após a refatoração
+
+Saída real das três aplicações, capturada após o commit da refatoração, com banco recém-criado.
+
+#### Projeto 1 — `code-smells-project`
+
+```console
+$ SECRET_KEY=exemplo-local PORT=5001 python app.py
+2026-08-13 14:59:09 INFO  src.database.schema | carga_inicial_concluida produtos=10 usuarios=3
+ * Serving Flask app 'app'
+ * Debug mode: off
+ * Running on http://127.0.0.1:5001
+2026-08-13 14:59:14 INFO  werkzeug | 127.0.0.1 - - "GET /health HTTP/1.1" 200 -
+2026-08-13 14:59:14 INFO  werkzeug | 127.0.0.1 - - "GET /produtos HTTP/1.1" 200 -
+```
+```console
+GET /health              200  {"counts": {"pedidos": 0, "produtos": 10, "usuarios": 3},
+                                "database": "connected", "status": "ok", "versao": "1.0.0"}
+GET /produtos            200  {"dados": [{"ativo": 1, "categoria": "informatica", ...}], "sucesso": true}
+GET /relatorios/vendas   200  {"dados": {"desconto_aplicavel": 0.0, "faturamento_bruto": 0, ...}, "sucesso": true}
+```
+
+O `/health` não devolve mais `secret_key`, `db_path`, `debug` nem `ambiente` — antes os quatro
+apareciam no JSON público.
+
+#### Projeto 2 — `ecommerce-api-legacy`
+
+```console
+$ npm start
+{"ts":"2026-08-13T17:59:27.894Z","level":"info","msg":"carga_inicial_concluida","usuarios":1,"cursos":2}
+{"ts":"2026-08-13T17:59:27.899Z","level":"info","msg":"servidor_iniciado","port":3000,"env":"development"}
+{"ts":"2026-08-13T17:59:30.857Z","level":"info","msg":"pagamento_processado","status":"PAID",
+ "amount":497,"cartao_final":"4444","gateway":"fake"}
+{"ts":"2026-08-13T17:59:30.902Z","level":"info","msg":"checkout_concluido","enrollment_id":2,"course_id":2}
+```
+```console
+POST /api/checkout                200  {"msg":"Sucesso","enrollment_id":2}
+GET  /api/admin/financial-report  200  [{"course":"Clean Architecture","revenue":997,
+                                         "students":[{"student":"Leonan","paid":997}]}, ...]
+```
+
+Este log é a evidência mais direta da correção do finding #2. A mesma operação, na versão original,
+imprimia:
+
+```console
+Processando cartão 4111222233334444 na chave pk_live_1234567890abcdef
+```
+
+Agora registra `"cartao_final":"4444"` e nenhuma chave de gateway.
+
+#### Projeto 3 — `task-manager-api`
+
+```console
+$ python scripts/init_db.py
+Schema criado em sqlite:///tasks.db
+
+$ python seed.py
+Seed concluído com sucesso!
+  3 usuários
+  4 categorias
+  10 tasks
+
+$ SECRET_KEY=exemplo PORT=5003 python app.py
+ * Serving Flask app 'app'
+ * Debug mode: off
+ * Running on http://127.0.0.1:5003
+2026-08-13 14:59:49 INFO  werkzeug | 127.0.0.1 - - "GET /health HTTP/1.1" 200 -
+```
+```console
+GET /health        200  {"status": "ok", "timestamp": "2026-08-13 17:59:49.822677"}
+GET /tasks/stats   200  {"cancelled": 1, "completion_rate": 10.0, "done": 1, "in_progress": 2,
+                         "overdue": 2, "pending": 6, "total": 10}
+GET /users/1       200  {"active": true, "created_at": "...", "email": "joao@email.com",
+                         "id": 1, "name": "João Silva", "role": "admin", "tasks": [...]}
+```
+
+Duas coisas visíveis aqui: `GET /users/1` não traz mais o campo `password`, e criar o schema virou um
+comando explícito (`scripts/init_db.py`) — antes acontecia sozinho ao importar `app.py`.
+
+---
+
 ### Observações sobre o comportamento da skill em stacks diferentes
 
 **O que se manteve idêntico nos três projetos.** A skill foi copiada sem uma única alteração entre os
