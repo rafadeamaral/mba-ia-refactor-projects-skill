@@ -623,7 +623,7 @@ repetida na lista de erros comuns do template de relatório.
 |---|---:|---:|---:|---:|---:|---|
 | `code-smells-project` | 7 | 6 | 8 | 5 | **26** | [audit-project-1.md](./reports/audit-project-1.md) |
 | `ecommerce-api-legacy` | 6 | 8 | 6 | 5 | **25** | [audit-project-2.md](./reports/audit-project-2.md) |
-| `task-manager-api` | — | — | — | — | — | _pendente_ |
+| `task-manager-api` | 4 | 5 | 9 | 6 | **25** | [audit-project-3.md](./reports/audit-project-3.md) |
 
 ### Checklist de Validação
 
@@ -633,27 +633,27 @@ Marcado a partir da execução real da skill em cada projeto. `P1` = `code-smell
 | Verificação | P1 | P2 | P3 |
 |---|:--:|:--:|:--:|
 | **Fase 1 — Análise** | | | |
-| Linguagem detectada corretamente | ✅ | ✅ | ☐ |
-| Framework detectado corretamente | ✅ | ✅ | ☐ |
-| Domínio da aplicação descrito corretamente | ✅ | ✅ | ☐ |
-| Número de arquivos analisados condiz com a realidade | ✅ | ✅ | ☐ |
+| Linguagem detectada corretamente | ✅ | ✅ | ✅ |
+| Framework detectado corretamente | ✅ | ✅ | ✅ |
+| Domínio da aplicação descrito corretamente | ✅ | ✅ | ✅ |
+| Número de arquivos analisados condiz com a realidade | ✅ | ✅ | ✅ |
 | **Fase 2 — Auditoria** | | | |
-| Relatório segue o template definido nos arquivos de referência | ✅ | ✅ | ☐ |
-| Cada finding tem arquivo e linhas exatos | ✅ | ✅ | ☐ |
-| Findings ordenados por severidade (CRITICAL → LOW) | ✅ | ✅ | ☐ |
-| Mínimo de 5 findings identificados | ✅ | ✅ | ☐ |
-| Detecção de APIs deprecated incluída (se aplicável) | ✅ | ✅ | ☐ |
-| Skill pausa e pede confirmação antes da Fase 3 | ✅ | ✅ | ☐ |
+| Relatório segue o template definido nos arquivos de referência | ✅ | ✅ | ✅ |
+| Cada finding tem arquivo e linhas exatos | ✅ | ✅ | ✅ |
+| Findings ordenados por severidade (CRITICAL → LOW) | ✅ | ✅ | ✅ |
+| Mínimo de 5 findings identificados | ✅ | ✅ | ✅ |
+| Detecção de APIs deprecated incluída (se aplicável) | ✅ | ✅ | ✅ |
+| Skill pausa e pede confirmação antes da Fase 3 | ✅ | ✅ | ✅ |
 | **Fase 3 — Refatoração** | | | |
-| Estrutura de diretórios segue padrão MVC | ✅ | ✅ | ☐ |
-| Configuração extraída para módulo de config (sem hardcoded) | ✅ | ✅ | ☐ |
-| Models criados para abstrair dados | ✅ | ✅ | ☐ |
-| Views/Routes separadas para visualização ou roteamento | ✅ | ✅ | ☐ |
-| Controllers concentram o fluxo da aplicação | ✅ | ✅ | ☐ |
-| Error handling centralizado | ✅ | ✅ | ☐ |
-| Entry point claro | ✅ | ✅ | ☐ |
-| Aplicação inicia sem erros | ✅ | ✅ | ☐ |
-| Endpoints originais respondem corretamente | ✅ * | ✅ | ☐ |
+| Estrutura de diretórios segue padrão MVC | ✅ | ✅ | ✅ |
+| Configuração extraída para módulo de config (sem hardcoded) | ✅ | ✅ | ✅ |
+| Models criados para abstrair dados | ✅ | ✅ | ✅ |
+| Views/Routes separadas para visualização ou roteamento | ✅ | ✅ | ✅ |
+| Controllers concentram o fluxo da aplicação | ✅ | ✅ | ✅ |
+| Error handling centralizado | ✅ | ✅ | ✅ |
+| Entry point claro | ✅ | ✅ | ✅ |
+| Aplicação inicia sem erros | ✅ | ✅ | ✅ |
+| Endpoints originais respondem corretamente | ✅ * | ✅ | ✅ |
 
 > \* **P1:** 17 dos 19 endpoints originais respondem com status e formato idênticos ao baseline.
 > Os outros 2 — `POST /admin/query` (executor de SQL arbitrário) e `POST /admin/reset-db` (reset
@@ -679,10 +679,10 @@ Marcado a partir da execução real da skill em cada projeto. `P1` = `code-smell
 
 | Critério | P1 | P2 | P3 |
 |---|:--:|:--:|:--:|
-| Fase 1 detecta stack corretamente | ✅ | ✅ | ☐ |
-| Fase 2 encontra ≥ 5 findings | ✅ (26) | ✅ (25) | ☐ |
-| Fase 2 inclui ≥ 1 CRITICAL ou HIGH | ✅ (13) | ✅ (14) | ☐ |
-| Fase 3 aplicação funciona após refatoração | ✅ | ✅ | ☐ |
+| Fase 1 detecta stack corretamente | ✅ | ✅ | ✅ |
+| Fase 2 encontra ≥ 5 findings | ✅ (26) | ✅ (25) | ✅ (25) |
+| Fase 2 inclui ≥ 1 CRITICAL ou HIGH | ✅ (13) | ✅ (14) | ✅ (9) |
+| Fase 3 aplicação funciona após refatoração | ✅ | ✅ | ✅ |
 
 ---
 
@@ -885,7 +885,139 @@ A versão original continuava somando receita de matrículas cujo aluno não exi
 
 ### Projeto 3 — `task-manager-api` (Python/Flask + SQLAlchemy)
 
-> _Pendente._
+#### Fase 1 — detecção
+
+```
+Language:      Python 3.12.0
+Framework:     Flask 3.0.0
+Dependencies:  flask-sqlalchemy 3.1.1, sqlalchemy 2.0.52, flask-cors 4.0.0,
+               marshmallow 3.20.1 (declarada, nunca importada),
+               python-dotenv 1.0.0 (declarada, nunca importada)
+Domain:        API de Task Manager (tasks, users, categories, relatórios de produtividade)
+Architecture:  Separação NOMINAL — existem models/, routes/, services/ e utils/, mas as
+               responsabilidades vazam entre elas; services/ e metade de utils/ são código morto
+Source files:  15 files analyzed | ~1.158 lines of code
+Endpoints:     22 endpoints mapeados
+```
+
+Um efeito colateral apareceu já na Fase 1: **importar `app.py` para listar as rotas criou o arquivo
+`instance/tasks.db`**. A criação de schema era efeito colateral do import, não de um comando —
+virou o finding #7, descoberto por acidente enquanto se fazia o inventário.
+
+#### Fase 2 — auditoria
+
+25 findings. Os quatro CRITICAL:
+
+| # | Finding | Local |
+|---|---|---|
+| 1 | Hash de senha vazado na resposta da API | `models/user.py:16-25` → 4 endpoints |
+| 2 | Senhas com MD5 e sem salt | `models/user.py:29,32` |
+| 3 | Autenticação simulada (`fake-jwt-token-<id>`); API 100% aberta | `routes/user_routes.py:210` |
+| 4 | Segredos hardcoded (`SECRET_KEY` e credenciais SMTP) | `app.py:13`, `services/notification_service.py:7-10` |
+
+**Este é o projeto que justifica os anti-patterns ARCH-11 e ARCH-12 do catálogo.** Uma auditoria que
+inferisse arquitetura pela árvore de diretórios olharia `models/ routes/ services/ utils/` e
+concluiria "já está organizado". A varredura por responsabilidade encontrou o oposto:
+
+- **ARCH-11 (camada nominal):** `create_task` tem 70 linhas e faz parsing, 8 validações, 2 consultas
+  de integridade, persistência e serialização. `summary_report` tem 90 linhas de agregação dentro do
+  handler HTTP.
+- **ARCH-12 (abstração morta):** busca por referências em todo o projeto — `Task.is_overdue()`: **0
+  chamadas** (a mesma regra reescrita 6× nas rotas); `process_task_data()`: **0**; `NotificationService`:
+  **0** (o pacote `services/` não é importado por ninguém); 5 helpers e 7 constantes: **0**.
+
+**APIs deprecated:** aqui, ao contrário dos projetos 1 e 2, **há uso ativo** — `datetime.utcnow()`
+(17 ocorrências, deprecado no Python 3.12) e `Model.query.get()` (16 ocorrências, legado no
+SQLAlchemy 2.0, que é a versão instalada).
+
+#### Fase 3 — estratégia diferente: nível B
+
+Este foi o único projeto em que a estratégia da Fase 3 mudou. Projetos 1 e 2 eram monolitos planos
+(nível A) e receberam a árvore inteira do zero. Aqui já existia uma árvore coerente, então a skill
+**manteve `models/`, `routes/`, `services/` e `utils/` com os nomes originais** e apenas adicionou o
+que faltava — renomear `routes/` para `views/` custaria mais do que entregaria.
+
+| | Antes | Depois |
+|---|---|---|
+| Arquivos | 15, com camadas nominais | 30 módulos, uma responsabilidade cada |
+| Maior handler | `summary_report` — 90 linhas | 12 linhas |
+| `Task.is_overdue()` | existia, 0 chamadas | fonte única, usada pelos 3 DTOs |
+| Validação | duplicada POST/PUT + 1 versão morta | `validators/` compartilhado |
+| `services/` | 0 imports, com senha SMTP no construtor | adotado, remetente injetado, sem credenciais |
+| Senha | MD5 sem salt, exposta na resposta | hash com salt, fora de qualquer DTO |
+| `/reports/summary` | 12 `COUNT` + 1 query por usuário | 2 `GROUP BY` + 1 agregação |
+| `GET /tasks` | 2 queries extras por task | `joinedload` |
+| `datetime.utcnow()` | 17 ocorrências | 0 |
+| `Model.query.get()` | 16 ocorrências | 0 |
+| Criar schema | efeito colateral do import | `scripts/init_db.py` |
+
+Cada símbolo morto recebeu decisão explícita — **adotar ou remover, nunca manter os dois**.
+`is_overdue`, `NotificationService`, `validate_email`, `sanitize_string`, `is_valid_color` e as 7
+constantes foram **adotados**; `process_task_data`, `generate_id` e `log_action` foram **removidos**.
+A tabela completa está no relatório.
+
+#### Validação
+
+```
+✓ Aplicação inicia sem erros
+✓ 22/22 endpoints registrados
+✓ 35/35 status codes idênticos ao baseline
+✓ 18/18 payloads de leitura idênticos (timestamps normalizados)
+✓ GET /users/1 expõe 'password':   True → False
+✓ POST /login expõe 'token':       True → False
+✓ Import puro de app.py cria banco: True → False
+✓ Cascade de deleção equivalente:   ambos 10 tasks → 7 após DELETE /users/3
+```
+
+A comparação de payload incluiu `/reports/summary` e `/tasks/stats` de propósito: são os dois pontos
+onde trocar 12 `COUNT` sequenciais por `GROUP BY` poderia ter mudado um número. Nenhum mudou.
+
+#### Um finding deliberadamente não corrigido
+
+O finding #25 (senha mínima de 4 caracteres) **não foi alterado**. Elevar o mínimo mudaria o resultado
+de requisições hoje aceitas — é decisão de política de produto, não refatoração. O risco real que o
+finding apontava vinha da combinação com MD5 sem salt, que foi corrigida. A constante agora existe em
+um único lugar, com a recomendação registrada; elevá-la virou uma alteração de uma linha.
+
+---
+
+### Observações sobre o comportamento da skill em stacks diferentes
+
+**O que se manteve idêntico nos três projetos.** A skill foi copiada sem uma única alteração entre os
+projetos 1, 2 e 3 — mesmo `SKILL.md`, mesmos 5 arquivos de referência. As três fases, o portão de
+confirmação, o formato do relatório e a estrutura da validação funcionaram sem adaptação manual.
+
+**O que a skill teve de adaptar sozinha.**
+
+| Dimensão | Projeto 1 (Flask puro) | Projeto 2 (Express) | Projeto 3 (Flask + ORM) |
+|---|---|---|---|
+| Nível de partida detectado | A — monolito plano | A — monolito plano | **B — separação nominal** |
+| Estratégia da Fase 3 | criar toda a árvore | criar toda a árvore | **manter a árvore, realocar responsabilidade** |
+| Achado dominante | SQL Injection sistêmico | callback hell + ausência de transação | camada nominal + abstração morta |
+| APIs deprecated | nenhuma | nenhuma (só dependências superadas) | **2 em uso ativo, 33 ocorrências** |
+| Nomenclatura alvo | `views/` (criada) | `routes/` (convenção Node) | `routes/` (**preservada do original**) |
+
+**Três aprendizados concretos:**
+
+1. **O inventário de endpoints precisou de heurística diferente em cada projeto.** No projeto 1, 16
+   das 19 rotas vinham de `add_url_rule` e só 3 de `@app.route`. No projeto 2, as 3 rotas eram
+   registradas por um método de instância (`manager.setupRoutes(app)`), invisível para uma busca por
+   `Router()`. Em ambos, procurar apenas o padrão idiomático teria produzido um contrato incompleto —
+   e a validação da Fase 3 seria contra o contrato errado.
+
+2. **Detecção por sinal, não por estrutura, foi o que fez o projeto 3 funcionar.** É o único dos três
+   em que uma inspeção superficial diria "já está em MVC". Os 25 findings só apareceram porque o
+   catálogo mapeia responsabilidade por arquivo em vez de confiar em nome de pasta.
+
+3. **A regra "não implemente funcionalidade nova" foi acionada nos três.** Autenticação real ficou de
+   fora nos três projetos, com o ponto de extensão pronto e o gap registrado. No projeto 2, a troca de
+   `sqlite3` por `node:sqlite` foi recomendada e não executada. No projeto 3, a política de senha não
+   foi endurecida. Em todos os casos a decisão está escrita no relatório, não implícita na omissão.
+
+**O que a comparação com baseline pegou e a leitura de código não pegaria.** No projeto 2, a ordem do
+relatório financeiro era não-determinística — duas execuções da mesma versão original devolveram
+ordens diferentes, efeito dos contadores manuais de callback. Isso só apareceu porque a validação
+executava a aplicação em vez de inspecionar o diff.
 
 ## D) Como Executar
 

@@ -1,48 +1,51 @@
-import smtplib
-from datetime import datetime
+"""Notificações de task.
+
+Este serviço era código morto: nenhum arquivo o importava, e ainda assim carregava host, usuário
+e senha de SMTP hardcoded no construtor — credenciais expostas sem entregar funcionalidade.
+
+A refatoração aplicou a decisão "adotar ou remover" do playbook: ele foi **adotado**, com duas
+mudanças — o remetente é injetado (nada de conexão SMTP construída dentro do consumidor) e a
+implementação padrão apenas registra em log. Enviar e-mail de verdade seria funcionalidade nova,
+fora do escopo; o ponto de extensão fica pronto para receber um `SmtpSender` configurado por
+ambiente.
+"""
+import logging
+
+log = logging.getLogger(__name__)
+
+
+class LoggingSender:
+    """Remetente padrão: registra a notificação em vez de enviá-la."""
+
+    def enviar(self, destino: str, assunto: str, corpo: str) -> bool:
+        log.info("notificacao destino=%s assunto=%r", destino, assunto)
+        log.debug("notificacao corpo=%r", corpo)
+        return True
+
 
 class NotificationService:
-    def __init__(self):
-        self.notifications = []
-        self.email_host = 'smtp.gmail.com'
-        self.email_port = 587
-        self.email_user = 'taskmanager@gmail.com'
-        self.email_password = 'senha123'
+    def __init__(self, sender=None):
+        self._sender = sender or LoggingSender()
 
-    def send_email(self, to, subject, body):
-        try:
+    def task_atribuida(self, task) -> None:
+        if not task.user:
+            return
+        self._sender.enviar(
+            destino=task.user.email,
+            assunto=f"Nova task atribuída: {task.title}",
+            corpo=(
+                f"Olá {task.user.name},\n\n"
+                f"A task '{task.title}' foi atribuída a você.\n\n"
+                f"Prioridade: {task.priority}\nStatus: {task.status}"
+            ),
+        )
 
-            server = smtplib.SMTP(self.email_host, self.email_port)
-            server.starttls()
-            server.login(self.email_user, self.email_password)
-            message = f"Subject: {subject}\n\n{body}"
-            server.sendmail(self.email_user, to, message)
-            server.quit()
-            print(f"Email enviado para {to}")
-            return True
-        except Exception as e:
-            print(f"Erro ao enviar email: {str(e)}")
-            return False
-
-    def notify_task_assigned(self, user, task):
-        subject = f"Nova task atribuída: {task.title}"
-        body = f"Olá {user.name},\n\nA task '{task.title}' foi atribuída a você.\n\nPrioridade: {task.priority}\nStatus: {task.status}"
-        self.send_email(user.email, subject, body)
-        self.notifications.append({
-            'type': 'task_assigned',
-            'user_id': user.id,
-            'task_id': task.id,
-            'timestamp': datetime.utcnow()
-        })
-
-    def notify_task_overdue(self, user, task):
-        subject = f"Task atrasada: {task.title}"
-        body = f"Olá {user.name},\n\nA task '{task.title}' está atrasada!\n\nData limite: {task.due_date}"
-        self.send_email(user.email, subject, body)
-
-    def get_notifications(self, user_id):
-        result = []
-        for n in self.notifications:
-            if n['user_id'] == user_id:
-                result.append(n)
-        return result
+    def task_atrasada(self, task) -> None:
+        if not task.user:
+            return
+        self._sender.enviar(
+            destino=task.user.email,
+            assunto=f"Task atrasada: {task.title}",
+            corpo=f"Olá {task.user.name},\n\nA task '{task.title}' está atrasada.\n"
+                  f"Data limite: {task.due_date}",
+        )

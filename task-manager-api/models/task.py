@@ -1,60 +1,47 @@
+"""Entidade Task — dados e regras de domínio. Sem serialização de resposta."""
 from database import db
-from datetime import datetime
-import json
+from utils.datetime_utils import utc_now
+
+STATUS_TERMINAIS = frozenset({"done", "cancelled"})
+
 
 class Task(db.Model):
-    __tablename__ = 'tasks'
+    __tablename__ = "tasks"
 
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text, nullable=True)
-    status = db.Column(db.String(50), default='pending')
+    status = db.Column(db.String(50), default="pending")
     priority = db.Column(db.Integer, default=3)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
-    category_id = db.Column(db.Integer, db.ForeignKey('categories.id'), nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    category_id = db.Column(db.Integer, db.ForeignKey("categories.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
     due_date = db.Column(db.DateTime, nullable=True)
     tags = db.Column(db.String(500), nullable=True)
 
-    user = db.relationship('User', backref='tasks')
-    category = db.relationship('Category', backref='tasks')
+    # cascade: deletar o usuário remove as tasks dele pelo ORM, em vez de um laço na rota.
+    user = db.relationship(
+        "User", backref=db.backref("tasks", cascade="all, delete-orphan", lazy="select"))
+    category = db.relationship("Category", backref="tasks")
 
-    def to_dict(self):
-        data = {}
-        data['id'] = self.id
-        data['title'] = self.title
-        data['description'] = self.description
-        data['status'] = self.status
-        data['priority'] = self.priority
-        data['user_id'] = self.user_id
-        data['category_id'] = self.category_id
-        data['created_at'] = str(self.created_at)
-        data['updated_at'] = str(self.updated_at)
-        data['due_date'] = str(self.due_date) if self.due_date else None
-        data['tags'] = self.tags.split(',') if self.tags else []
-        return data
+    @property
+    def is_overdue(self) -> bool:
+        """Regra de domínio única.
 
-    def validate_status(self, new_status):
-        valid = ['pending', 'in_progress', 'done', 'cancelled']
-        if new_status in valid:
-            return True
-        else:
-            return False
+        A versão anterior tinha este método (como `is_overdue()`) e nunca o chamava: o mesmo
+        `if` triplo aninhado estava reescrito em seis pontos das rotas. Agora é esta a
+        implementação usada em todos eles.
+        """
+        return (
+            self.due_date is not None
+            and self.due_date < utc_now()
+            and self.status not in STATUS_TERMINAIS
+        )
 
-    def validate_priority(self, p):
-        if p >= 1 and p <= 5:
-            return True
-        return False
+    @property
+    def tag_list(self) -> list[str]:
+        return self.tags.split(",") if self.tags else []
 
-    def is_overdue(self):
-        if self.due_date:
-            if self.due_date < datetime.utcnow():
-                if self.status != 'done' and self.status != 'cancelled':
-                    return True
-                else:
-                    return False
-            else:
-                return False
-        else:
-            return False
+    def __repr__(self) -> str:
+        return f"<Task {self.id} {self.title!r}>"
