@@ -622,7 +622,7 @@ repetida na lista de erros comuns do template de relatório.
 | Projeto | CRITICAL | HIGH | MEDIUM | LOW | Total | Relatório |
 |---|---:|---:|---:|---:|---:|---|
 | `code-smells-project` | 7 | 6 | 8 | 5 | **26** | [audit-project-1.md](./reports/audit-project-1.md) |
-| `ecommerce-api-legacy` | — | — | — | — | — | _pendente_ |
+| `ecommerce-api-legacy` | 6 | 8 | 6 | 5 | **25** | [audit-project-2.md](./reports/audit-project-2.md) |
 | `task-manager-api` | — | — | — | — | — | _pendente_ |
 
 ### Checklist de Validação
@@ -633,27 +633,27 @@ Marcado a partir da execução real da skill em cada projeto. `P1` = `code-smell
 | Verificação | P1 | P2 | P3 |
 |---|:--:|:--:|:--:|
 | **Fase 1 — Análise** | | | |
-| Linguagem detectada corretamente | ✅ | ☐ | ☐ |
-| Framework detectado corretamente | ✅ | ☐ | ☐ |
-| Domínio da aplicação descrito corretamente | ✅ | ☐ | ☐ |
-| Número de arquivos analisados condiz com a realidade | ✅ | ☐ | ☐ |
+| Linguagem detectada corretamente | ✅ | ✅ | ☐ |
+| Framework detectado corretamente | ✅ | ✅ | ☐ |
+| Domínio da aplicação descrito corretamente | ✅ | ✅ | ☐ |
+| Número de arquivos analisados condiz com a realidade | ✅ | ✅ | ☐ |
 | **Fase 2 — Auditoria** | | | |
-| Relatório segue o template definido nos arquivos de referência | ✅ | ☐ | ☐ |
-| Cada finding tem arquivo e linhas exatos | ✅ | ☐ | ☐ |
-| Findings ordenados por severidade (CRITICAL → LOW) | ✅ | ☐ | ☐ |
-| Mínimo de 5 findings identificados | ✅ | ☐ | ☐ |
-| Detecção de APIs deprecated incluída (se aplicável) | ✅ | ☐ | ☐ |
-| Skill pausa e pede confirmação antes da Fase 3 | ✅ | ☐ | ☐ |
+| Relatório segue o template definido nos arquivos de referência | ✅ | ✅ | ☐ |
+| Cada finding tem arquivo e linhas exatos | ✅ | ✅ | ☐ |
+| Findings ordenados por severidade (CRITICAL → LOW) | ✅ | ✅ | ☐ |
+| Mínimo de 5 findings identificados | ✅ | ✅ | ☐ |
+| Detecção de APIs deprecated incluída (se aplicável) | ✅ | ✅ | ☐ |
+| Skill pausa e pede confirmação antes da Fase 3 | ✅ | ✅ | ☐ |
 | **Fase 3 — Refatoração** | | | |
-| Estrutura de diretórios segue padrão MVC | ✅ | ☐ | ☐ |
-| Configuração extraída para módulo de config (sem hardcoded) | ✅ | ☐ | ☐ |
-| Models criados para abstrair dados | ✅ | ☐ | ☐ |
-| Views/Routes separadas para visualização ou roteamento | ✅ | ☐ | ☐ |
-| Controllers concentram o fluxo da aplicação | ✅ | ☐ | ☐ |
-| Error handling centralizado | ✅ | ☐ | ☐ |
-| Entry point claro | ✅ | ☐ | ☐ |
-| Aplicação inicia sem erros | ✅ | ☐ | ☐ |
-| Endpoints originais respondem corretamente | ✅ * | ☐ | ☐ |
+| Estrutura de diretórios segue padrão MVC | ✅ | ✅ | ☐ |
+| Configuração extraída para módulo de config (sem hardcoded) | ✅ | ✅ | ☐ |
+| Models criados para abstrair dados | ✅ | ✅ | ☐ |
+| Views/Routes separadas para visualização ou roteamento | ✅ | ✅ | ☐ |
+| Controllers concentram o fluxo da aplicação | ✅ | ✅ | ☐ |
+| Error handling centralizado | ✅ | ✅ | ☐ |
+| Entry point claro | ✅ | ✅ | ☐ |
+| Aplicação inicia sem erros | ✅ | ✅ | ☐ |
+| Endpoints originais respondem corretamente | ✅ * | ✅ | ☐ |
 
 > \* **P1:** 17 dos 19 endpoints originais respondem com status e formato idênticos ao baseline.
 > Os outros 2 — `POST /admin/query` (executor de SQL arbitrário) e `POST /admin/reset-db` (reset
@@ -679,10 +679,10 @@ Marcado a partir da execução real da skill em cada projeto. `P1` = `code-smell
 
 | Critério | P1 | P2 | P3 |
 |---|:--:|:--:|:--:|
-| Fase 1 detecta stack corretamente | ✅ | ☐ | ☐ |
-| Fase 2 encontra ≥ 5 findings | ✅ (26) | ☐ | ☐ |
-| Fase 2 inclui ≥ 1 CRITICAL ou HIGH | ✅ (13) | ☐ | ☐ |
-| Fase 3 aplicação funciona após refatoração | ✅ | ☐ | ☐ |
+| Fase 1 detecta stack corretamente | ✅ | ✅ | ☐ |
+| Fase 2 encontra ≥ 5 findings | ✅ (26) | ✅ (25) | ☐ |
+| Fase 2 inclui ≥ 1 CRITICAL ou HIGH | ✅ (13) | ✅ (14) | ☐ |
+| Fase 3 aplicação funciona após refatoração | ✅ | ✅ | ☐ |
 
 ---
 
@@ -801,7 +801,87 @@ inexistente, e erro de tipo em parâmetro retorna 400 em vez de 500.
 
 ### Projeto 2 — `ecommerce-api-legacy` (Node.js/Express)
 
-> _Pendente._
+#### Fase 1 — detecção
+
+```
+Language:      JavaScript (Node.js v24.18.1, CommonJS)
+Framework:     Express 4.18.2 (resolvido para 4.22.1)
+Dependencies:  sqlite3 5.1.6
+Domain:        LMS / plataforma de cursos (usuários, cursos, matrículas, pagamentos, auditoria)
+Architecture:  God Class — 1 classe concentra banco, DDL, seed, rotas, negócio e relatório
+Source files:  3 files analyzed | ~180 lines of code
+Persistence:   SQLite em memória (:memory:), driver baseado em callbacks, sem ORM
+DB tables:     users, courses, enrollments, payments, audit_logs
+Endpoints:     3 endpoints mapeados
+```
+
+Aqui a heurística de inventário foi testada de outra forma: as três rotas são registradas por
+`manager.setupRoutes(app)` — um método de instância. Buscar por `router.` ou `Router()`, o padrão
+usual em Express, não encontraria nenhuma.
+
+#### Fase 2 — auditoria
+
+25 findings. Os seis CRITICAL:
+
+| # | Finding | Local |
+|---|---|---|
+| 1 | Segredos de produção hardcoded (chave `pk_live_`) | `src/utils.js:1-7` |
+| 2 | Número de cartão e chave do gateway em log | `src/AppManager.js:45` |
+| 3 | Hash de senha caseiro e reversível (`badCrypto`) | `src/utils.js:17-23` |
+| 4 | God Class — 7 responsabilidades em 141 linhas | `src/AppManager.js:1-141` |
+| 5 | Checkout sem fronteira transacional | `src/AppManager.js:50-63` |
+| 6 | Rotas administrativa e destrutiva sem autenticação | `src/AppManager.js:80,131` |
+
+**APIs deprecated:** nenhuma de linguagem ou framework — o código já usa `Buffer.from()` e
+`express.json()`, as formas modernas. O que existe é dívida de **dependência** (DEP-03): `sqlite3`
+baseado em callbacks (causa raiz dos findings #5, #8, #9 e #16) e Express 4. Ambos ficaram como
+recomendação: a Fase 3 resolve o problema promisificando o driver, que entrega o mesmo ganho sem
+alterar a superfície de dependências.
+
+#### Fase 3 — antes e depois
+
+| | Antes | Depois |
+|---|---|---|
+| Arquivos | 3 (`app.js`, `AppManager.js`, `utils.js`) | 24 módulos em 9 camadas |
+| Maior arquivo | `AppManager.js` — 141 linhas, 7 responsabilidades | `checkout.controller.js` — 63 linhas, 1 |
+| Indentação máx. do checkout | **36 espaços** (5 níveis de callback) | **16 espaços** |
+| Transação | nenhuma — 4 escritas encadeadas | `db.transaction()` com rollback |
+| Hash de senha | base64 truncado em 10 chars, sem salt | `crypto.scryptSync` com salt e comparação em tempo constante |
+| Gateway | `cc.startsWith("4")` inline no handler | `FakePaymentGateway` injetado |
+| Relatório financeiro | 1 + N + 2M queries, contadores manuais | 1 query com `JOIN` |
+| Integridade | sem FK, registros órfãos ao deletar | FKs com `ON DELETE CASCADE` |
+| Persistência | `:memory:` fixo no código | `DATABASE_PATH` configurável |
+| Erros | `err` ignorado, sem middleware | erros de domínio + error handler + `asyncHandler` |
+| Log | `console.log` com PAN e chave | logger estruturado, só os 4 últimos dígitos |
+
+#### Validação
+
+```
+✓ Aplicação inicia sem erros          {"msg":"servidor_iniciado","port":3000}
+✓ 3/3 endpoints respondem
+✓ 7/7 status codes idênticos ao baseline
+✓ Relatório financeiro idêntico ao original (comparação com ambos ordenados)
+✓ Cartão em log:                      antes sim → agora não
+✓ Registros órfãos após DELETE:       antes true → agora false
+✓ Zero anti-patterns CRITICAL/HIGH remanescentes
+```
+
+Dois detalhes que só apareceram por comparar execução real, não código:
+
+**A ordem do relatório era não-determinística.** Duas execuções do baseline devolveram os cursos em
+ordens diferentes — efeito direto dos contadores manuais (`coursesPending--`) decidindo a hora de
+responder conforme os callbacks retornavam. O refatorado ordena por id do curso; comparando ambos
+os lados ordenados, o conteúdo é idêntico.
+
+**A corrupção de dados do finding #13 é visível no relatório.** Antes e depois de
+`DELETE /api/users/1`:
+
+```
+antes  → [{"course":"Clean Architecture","revenue":997,"students":[{"student":"Unknown","paid":997}]}, ...]
+depois → [{"course":"Clean Architecture","revenue":0,"students":[]}, ...]
+```
+
+A versão original continuava somando receita de matrículas cujo aluno não existia mais.
 
 ### Projeto 3 — `task-manager-api` (Python/Flask + SQLAlchemy)
 
