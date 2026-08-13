@@ -617,11 +617,190 @@ repetida na lista de erros comuns do template de relatório.
 
 ## C) Resultados
 
-> _Em construção — Etapa 3._
-> Documentará: resumo dos relatórios de auditoria dos 3 projetos, comparação antes/depois da estrutura,
-> checklist de validação preenchido, logs das aplicações rodando e observações por stack.
+### Resumo dos relatórios de auditoria
+
+| Projeto | CRITICAL | HIGH | MEDIUM | LOW | Total | Relatório |
+|---|---:|---:|---:|---:|---:|---|
+| `code-smells-project` | 7 | 6 | 8 | 5 | **26** | [audit-project-1.md](./reports/audit-project-1.md) |
+| `ecommerce-api-legacy` | — | — | — | — | — | _pendente_ |
+| `task-manager-api` | — | — | — | — | — | _pendente_ |
+
+---
+
+### Projeto 1 — `code-smells-project` (Python/Flask)
+
+#### Fase 1 — detecção
+
+```
+Language:      Python 3.12.0
+Framework:     Flask 3.1.1
+Dependencies:  flask-cors 5.0.1
+Domain:        API de E-commerce (produtos, usuários, pedidos, relatório de vendas)
+Architecture:  Monolítica — 4 arquivos na raiz com nomenclatura MVC, sem separação real de camadas
+Source files:  4 files analyzed | ~780 lines of code
+Persistence:   SQLite (sqlite3 direto, sem ORM)
+DB tables:     produtos, usuarios, pedidos, itens_pedido
+Endpoints:     19 endpoints mapeados
+```
+
+O inventário de endpoints exigiu buscar os dois padrões de registro do Flask: 16 rotas vinham de
+`add_url_rule` e apenas 3 de `@app.route`. Uma varredura só por decoradores teria encontrado 3 de 19 —
+e a validação da Fase 3 seria contra um contrato incompleto.
+
+#### Fase 2 — auditoria
+
+26 findings, ordenados por severidade, cada um com arquivo e linhas exatos. Os sete CRITICAL:
+
+| # | Finding | Local |
+|---|---|---|
+| 1 | SQL Injection por concatenação (21 de 27 queries) | `models.py`, 21 pontos |
+| 2 | Endpoints administrativos irrestritos (SQL arbitrário + reset destrutivo) | `app.py:47-78` |
+| 3 | Dado sensível exposto na resposta (`senha`, `secret_key`) | `controllers.py:284-289`, `models.py:84,99` |
+| 4 | Senhas armazenadas em texto plano | `models.py:105-131`, `database.py:75-83` |
+| 5 | Segredo hardcoded no código | `app.py:7`, `controllers.py:289` |
+| 6 | Autenticação e autorização ausentes | projeto inteiro |
+| 7 | God Module — 5 responsabilidades em um arquivo | `models.py:1-314` |
+
+**APIs deprecated:** nenhuma. Verificados explicitamente `datetime.utcnow()`, `imp`, `distutils`,
+`@app.before_first_request`, `flask.Markup`, `Model.query.get()` e os adaptadores de data do `sqlite3`
+contra Python 3.12.0 / Flask 3.1.1 — o projeto não importa `datetime` e usa `CURRENT_TIMESTAMP` do SQLite.
+O relatório declara a ausência em vez de omitir a seção.
+
+A skill pausou após o relatório e aguardou confirmação antes de modificar qualquer arquivo.
+
+#### Fase 3 — antes e depois
+
+| | Antes | Depois |
+|---|---|---|
+| Arquivos | 4 na raiz | 33 módulos em 8 camadas |
+| Linhas | 780 | ~1.100 (com docstrings e validação explícita) |
+| Maior arquivo | `models.py` — 314 linhas, 5 responsabilidades | `pedido_model.py` — 115 linhas, 1 responsabilidade |
+| SQL | concatenado em 21 pontos, espalhado por 3 arquivos | parametrizado, exclusivamente em `src/models/` e `src/database/` |
+| Configuração | `SECRET_KEY` e `DEBUG` no código | `src/config/settings.py` lendo do ambiente + `.env.example` |
+| Conexão | global de módulo, `check_same_thread=False` | por requisição, com teardown registrado |
+| Erros | 16 `try/except` repetidos vazando `str(e)` | exceções de domínio + um `@app.errorhandler` |
+| Senhas | texto plano | `generate_password_hash` + re-hash no login para a base legada |
+| Listagem de pedidos | 1 + N + M queries | 1 query com `LEFT JOIN` |
+| Relatório de vendas | 5 queries sequenciais | 1 query agregada |
+| Notificações | `print()` dentro do controller | `NotificacaoService` injetado |
+| Entry point | 88 linhas com rotas, config e SQL | `create_app()` que só monta as camadas |
+
+```
+code-smells-project/
+├── app.py                     composition root
+├── scripts/reset_db.py        substitui POST /admin/reset-db
+└── src/
+    ├── config/                settings (env) + logging
+    ├── database/              conexão por requisição, schema explícito
+    ├── models/                produto, usuario, pedido
+    ├── controllers/           produto, usuario, pedido, relatorio, health
+    ├── views/                 blueprints + dto/
+    ├── validators/            common, produto, usuario, pedido
+    ├── services/              notificacao_service
+    ├── middlewares/           exceptions, error_handler, auth
+    └── constants.py
+```
+
+#### Validação
+
+Baseline capturado com a **versão original extraída do git**, em banco limpo, antes de qualquer
+alteração; o refatorado foi exercitado com a mesma sequência, também em banco limpo.
+
+```
+✓ Aplicação inicia sem erros       carga_inicial_concluida produtos=10 usuarios=3
+✓ 17/17 endpoints respondem        (19 originais − 2 removidos deliberadamente)
+✓ 24/24 status codes idênticos ao baseline
+✓ 10/10 payloads de leitura idênticos (timestamps normalizados)
+✓ Caminhos de erro preservados     400 validação · 404 inexistente · 401 login
+✓ GET /usuarios expõe 'senha':     True → False
+✓ GET /health expõe 'secret_key':  True → False
+✓ POST /admin/query:               200 → 404 (removido)
+✓ Zero anti-patterns CRITICAL/HIGH remanescentes
+```
+
+O diff completo entre baseline e resultado tem **uma única linha de divergência** — exatamente o
+endpoint que a Fase 3 se propôs a remover:
+
+```diff
+- POST /admin/query 200
++ POST /admin/query 404
+```
+
+Verificação de anti-patterns residuais por grep: 0 queries concatenadas, 0 rotas administrativas,
+0 ocorrências de `senha` em DTO de resposta, 0 segredos literais, 0 SQL fora da camada de dados,
+0 `debug=True` hardcoded, 0 `try/except` em rotas, 0 `print()` em código de aplicação.
+
+#### Mudanças de contrato
+
+Oito, todas deliberadas e documentadas no relatório: dois endpoints removidos, dois campos sensíveis
+retirados das respostas, normalização de `"sucesso": false` nos erros (a chave `erro` e os status codes
+permanecem idênticos), e três correções que tornam a API mais estrita — `PUT /produtos/<id>` passou a
+aplicar as validações que só o `POST` fazia, `PUT /pedidos/<id>/status` retorna 404 para pedido
+inexistente, e erro de tipo em parâmetro retorna 400 em vez de 500.
+
+---
+
+### Projeto 2 — `ecommerce-api-legacy` (Node.js/Express)
+
+> _Pendente._
+
+### Projeto 3 — `task-manager-api` (Python/Flask + SQLAlchemy)
+
+> _Pendente._
 
 ## D) Como Executar
 
-> _Em construção — Etapa 3._
-> Documentará: pré-requisitos, comandos de invocação da skill em cada projeto e como validar a refatoração.
+### Pré-requisitos
+
+- [Claude Code](https://claude.com/claude-code) instalado e autenticado
+- Python 3.10+ (projetos 1 e 3) e Node.js 18+ (projeto 2)
+
+### Invocando a skill
+
+A skill vive em `.claude/skills/refactor-arch/` dentro de cada projeto e é invocada a partir da raiz
+do projeto que se quer refatorar:
+
+```bash
+cd code-smells-project
+claude "/refactor-arch"
+```
+
+O fluxo é interativo: a Fase 1 imprime a análise, a Fase 2 imprime o relatório de auditoria e **pausa
+pedindo confirmação**, e a Fase 3 só executa após o `y`. O relatório é salvo em `reports/`.
+
+### Rodando o projeto 1 refatorado
+
+```bash
+cd code-smells-project
+python -m venv .venv && .venv/Scripts/activate      # Linux/macOS: source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env                                 # ajuste SECRET_KEY
+python app.py
+```
+
+A API sobe em `http://127.0.0.1:5000`. Para resetar o banco (substitui o antigo endpoint destrutivo):
+
+```bash
+python scripts/reset_db.py --confirmar
+```
+
+### Validando a refatoração
+
+Para reproduzir a validação — comparar o comportamento antes e depois:
+
+```bash
+# 1. extrair a versão original do git para um diretório temporário
+mkdir /tmp/orig && cd /tmp/orig
+for f in app.py controllers.py models.py database.py; do
+  git -C /caminho/do/repo show 6d1ce62:code-smells-project/$f > $f
+done
+python -c "from app import app; app.run(port=5002)" &
+
+# 2. subir o refatorado em outra porta
+cd /caminho/do/repo/code-smells-project && PORT=5001 python app.py &
+
+# 3. comparar status codes e payloads dos dois
+```
+
+O commit `6d1ce62` é o boilerplate original. A validação executada nesta entrega comparou 24 casos de
+requisição (incluindo caminhos de erro) e 10 payloads de leitura.
