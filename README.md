@@ -625,6 +625,65 @@ repetida na lista de erros comuns do template de relatório.
 | `ecommerce-api-legacy` | — | — | — | — | — | _pendente_ |
 | `task-manager-api` | — | — | — | — | — | _pendente_ |
 
+### Checklist de Validação
+
+Marcado a partir da execução real da skill em cada projeto. `P1` = `code-smells-project`,
+`P2` = `ecommerce-api-legacy`, `P3` = `task-manager-api`.
+
+| Verificação | P1 | P2 | P3 |
+|---|:--:|:--:|:--:|
+| **Fase 1 — Análise** | | | |
+| Linguagem detectada corretamente | ✅ | ☐ | ☐ |
+| Framework detectado corretamente | ✅ | ☐ | ☐ |
+| Domínio da aplicação descrito corretamente | ✅ | ☐ | ☐ |
+| Número de arquivos analisados condiz com a realidade | ✅ | ☐ | ☐ |
+| **Fase 2 — Auditoria** | | | |
+| Relatório segue o template definido nos arquivos de referência | ✅ | ☐ | ☐ |
+| Cada finding tem arquivo e linhas exatos | ✅ | ☐ | ☐ |
+| Findings ordenados por severidade (CRITICAL → LOW) | ✅ | ☐ | ☐ |
+| Mínimo de 5 findings identificados | ✅ | ☐ | ☐ |
+| Detecção de APIs deprecated incluída (se aplicável) | ✅ | ☐ | ☐ |
+| Skill pausa e pede confirmação antes da Fase 3 | ✅ | ☐ | ☐ |
+| **Fase 3 — Refatoração** | | | |
+| Estrutura de diretórios segue padrão MVC | ✅ | ☐ | ☐ |
+| Configuração extraída para módulo de config (sem hardcoded) | ✅ | ☐ | ☐ |
+| Models criados para abstrair dados | ✅ | ☐ | ☐ |
+| Views/Routes separadas para visualização ou roteamento | ✅ | ☐ | ☐ |
+| Controllers concentram o fluxo da aplicação | ✅ | ☐ | ☐ |
+| Error handling centralizado | ✅ | ☐ | ☐ |
+| Entry point claro | ✅ | ☐ | ☐ |
+| Aplicação inicia sem erros | ✅ | ☐ | ☐ |
+| Endpoints originais respondem corretamente | ✅ * | ☐ | ☐ |
+
+> \* **P1:** 17 dos 19 endpoints originais respondem com status e formato idênticos ao baseline.
+> Os outros 2 — `POST /admin/query` (executor de SQL arbitrário) e `POST /admin/reset-db` (reset
+> destrutivo, ambos sem autenticação) — foram **removidos deliberadamente**, conforme o finding #2
+> do relatório. A remoção é a correção, não uma regressão: mantê-los funcionando significaria deixar
+> um backdoor de banco aberto na API.
+
+**Evidência do P1** — cada marca acima corresponde a um resultado verificável:
+
+| Item | Evidência |
+|---|---|
+| Linguagem / framework | `Python 3.12.0` e `Flask 3.1.1` lidos de `requirements.txt` e confirmados por import |
+| Nº de arquivos | `wc -l *.py` → 4 arquivos, 780 linhas |
+| Findings com linha exata | 26 findings, todos com `arquivo:linha` verificado por leitura |
+| APIs deprecated | seção presente declarando ausência, com as 8 APIs verificadas listadas |
+| Pausa antes da Fase 3 | execução interrompida aguardando confirmação; nenhum arquivo modificado até o `y` |
+| Config sem hardcoded | grep por segredo literal em `src/` e `app.py` → 0 ocorrências |
+| Error handling central | 16 `try/except` removidos; grep por `except` em `src/views/` → 0 |
+| Aplicação inicia | log de boot: `carga_inicial_concluida produtos=10 usuarios=3` |
+| Endpoints respondem | 24/24 status codes e 10/10 payloads idênticos ao baseline pré-refatoração |
+
+### Critérios de aceite
+
+| Critério | P1 | P2 | P3 |
+|---|:--:|:--:|:--:|
+| Fase 1 detecta stack corretamente | ✅ | ☐ | ☐ |
+| Fase 2 encontra ≥ 5 findings | ✅ (26) | ☐ | ☐ |
+| Fase 2 inclui ≥ 1 CRITICAL ou HIGH | ✅ (13) | ☐ | ☐ |
+| Fase 3 aplicação funciona após refatoração | ✅ | ☐ | ☐ |
+
 ---
 
 ### Projeto 1 — `code-smells-project` (Python/Flask)
