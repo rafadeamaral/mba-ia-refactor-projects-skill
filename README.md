@@ -521,12 +521,8 @@ stack. Essa recorrência é o que torna viável um catálogo agnóstico de tecno
 **A skill é mantida em um lugar só e copiada para os três projetos.** O desafio pede a pasta *dentro* de
 cada projeto, então as cópias precisam ser arquivos de verdade — um symlink versionado chega como
 arquivo de texto contendo o caminho em qualquer clone Windows sem Developer Mode, e a skill não
-carregaria para quem for avaliar. A cópia é feita por script, não à mão:
-
-```bash
-python scripts/sync-skill.py            # propaga a fonte para os 3 projetos
-python scripts/sync-skill.py --check    # verifica sincronia; sai com 1 se divergir
-```
+carregaria para quem for avaliar. A propagação é feita por `scripts/sync-skill.py`, documentado em
+[D — Manutenção da skill](#manutenção-da-skill--scriptssync-skillpy).
 
 ### Decisões de design
 
@@ -1179,15 +1175,78 @@ executava a aplicação em vez de inspecionar o diff.
 
 ## D) Como Executar
 
-### Manutenção da skill
+### Manutenção da skill — `scripts/sync-skill.py`
 
-A skill vive em `.claude/skills/refactor-arch/` na raiz e é copiada para os três projetos por script.
-Edite **sempre a fonte** e propague:
+A skill existe em quatro lugares no repositório, mas só **um** é editável:
+
+```
+.claude/skills/refactor-arch/                     ← FONTE. É aqui que se edita.
+code-smells-project/.claude/skills/refactor-arch/ ← cópia gerada
+ecommerce-api-legacy/.claude/skills/refactor-arch/ ← cópia gerada
+task-manager-api/.claude/skills/refactor-arch/    ← cópia gerada
+```
+
+O `sync-skill.py` mantém as três cópias idênticas à fonte. Sem dependências: usa só `shutil`,
+`filecmp` e `pathlib` da biblioteca padrão, e roda em qualquer Python 3.10+.
+
+#### Uso
 
 ```bash
-python scripts/sync-skill.py            # copia a fonte para os 3 projetos
-python scripts/sync-skill.py --check    # verifica se as 3 cópias estão em dia (exit 1 se não)
+python scripts/sync-skill.py            # propaga a fonte para os 3 projetos
+python scripts/sync-skill.py --check    # não escreve nada; só relata divergências
 ```
+
+Saída do modo normal — projeto já em dia é deixado intacto; o número entre parênteses é a quantidade
+de arquivos que estavam divergentes:
+
+```console
+$ python scripts/sync-skill.py
+  ok        code-smells-project/.claude/skills/refactor-arch
+  atualizado ecommerce-api-legacy/.claude/skills/refactor-arch (5 arquivo(s))
+  atualizado task-manager-api/.claude/skills/refactor-arch (5 arquivo(s))
+
+Skill sincronizada a partir de .claude/skills/refactor-arch/
+```
+
+Saída do `--check`, que é o modo próprio para hook de pré-commit ou CI:
+
+```console
+$ python scripts/sync-skill.py --check
+  ok        code-smells-project/.claude/skills/refactor-arch
+  ok        ecommerce-api-legacy/.claude/skills/refactor-arch
+  ok        task-manager-api/.claude/skills/refactor-arch
+```
+
+| Código de saída | Significado |
+|:--:|---|
+| `0` | Tudo em dia (ou, no modo normal, sincronizado com sucesso) |
+| `1` | Só em `--check`: alguma cópia divergiu. Os arquivos divergentes são listados por nome |
+| `2` | A pasta-fonte não existe |
+
+#### O que ele compara
+
+A comparação é por conteúdo (`filecmp.cmp(..., shallow=False)`), não por data de modificação — um
+arquivo tocado sem alteração real não conta como divergência. Também detecta arquivo **faltando** na
+cópia e arquivo **sobrando** nela, o que pega o caso de uma referência renomeada na fonte deixando a
+versão antiga para trás no projeto.
+
+Ao sincronizar, o destino é removido e recriado: a cópia é sempre um espelho exato, nunca um merge.
+
+#### Por que cópia e não symlink
+
+O `DESAFIO.md` pede a skill **dentro** dos três projetos (linhas 208, 224 e 280). Um symlink versionado
+no Git é armazenado como um arquivo de modo `120000` e só vira link de verdade no checkout se o cliente
+tiver `core.symlinks=true` — o que, no Windows, depende de Developer Mode ligado. Sem isso, quem clonar
+recebe um arquivo de texto contendo o caminho, e a skill simplesmente não carrega para quem for avaliar.
+Cópias reais funcionam em qualquer sistema; o custo é ter de propagá-las, e é esse custo que o script
+elimina.
+
+#### Fluxo de trabalho
+
+1. Edite `.claude/skills/refactor-arch/` (nunca as cópias — a próxima sincronização as sobrescreve).
+2. Rode `python scripts/sync-skill.py`.
+3. Faça `git add` da fonte **e** das três cópias no mesmo commit, para que o repositório nunca fique
+   com versões diferentes da skill em projetos diferentes.
 
 
 ### Pré-requisitos
