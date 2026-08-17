@@ -23,7 +23,9 @@ class Settings:
             o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
             if o.strip()
         ]
-        self.AUTH_ENABLED = _flag("AUTH_ENABLED")
+        # Validade do token emitido no login, em segundos. Não existe flag para desligar a
+        # verificação: guarda desligável por configuração não protege nada (SEC-10).
+        self.TOKEN_TTL = int(os.getenv("TOKEN_TTL_SEGUNDOS", "3600"))
 
     @staticmethod
     def _segredo_efemero() -> str:

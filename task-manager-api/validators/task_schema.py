@@ -20,7 +20,11 @@ def validar_criacao(dados) -> dict:
     dados = exigir_corpo(dados)
     if "title" not in dados or not dados.get("title"):
         raise ValidationError("Título é obrigatório")
-    return _validar(dados, campos=set(dados.keys()) | {"title"})
+    resultado = _validar(dados, campos=set(dados.keys()) | {"title"})
+    # `description` ausente vira string vazia, como na versão anterior (`data.get('description', '')`).
+    # Devolver `null` onde o cliente recebia `""` seria mudança de contrato sem ganho nenhum.
+    resultado.setdefault("description", "")
+    return resultado
 
 
 def validar_atualizacao(dados) -> dict:

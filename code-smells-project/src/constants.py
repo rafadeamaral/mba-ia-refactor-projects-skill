@@ -12,6 +12,7 @@ STATUS_PEDIDO_APROVADO = "aprovado"
 STATUS_PEDIDO_CANCELADO = "cancelado"
 
 TIPO_USUARIO_PADRAO = "cliente"
+TIPO_USUARIO_ADMIN = "admin"
 
 # Faixas de desconto sobre o faturamento: (valor mínimo, alíquota), da maior para a menor.
 FAIXAS_DESCONTO = (

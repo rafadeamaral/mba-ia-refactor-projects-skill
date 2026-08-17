@@ -508,14 +508,24 @@ stack. Essa recorrência é o que torna viável um catálogo agnóstico de tecno
 ### Estrutura da skill
 
 ```
-.claude/skills/refactor-arch/
-├── SKILL.md                                  # orquestração das 3 fases (~180 linhas)
+.claude/skills/refactor-arch/                 # FONTE ÚNICA, na raiz do repositório
+├── SKILL.md                                  # orquestração das 3 fases (~210 linhas)
 └── references/
     ├── 01-project-analysis.md                # heurísticas de detecção (Fase 1)
-    ├── 02-antipattern-catalog.md             # 38 anti-patterns (Fase 2)
+    ├── 02-antipattern-catalog.md             # 39 anti-patterns (Fase 2)
     ├── 03-audit-report-template.md           # formato do relatório (Fase 2)
     ├── 04-mvc-architecture.md                # regras do alvo MVC (Fase 3)
     └── 05-refactoring-playbook.md            # 19 transformações antes/depois (Fase 3)
+```
+
+**A skill é mantida em um lugar só e copiada para os três projetos.** O desafio pede a pasta *dentro* de
+cada projeto, então as cópias precisam ser arquivos de verdade — um symlink versionado chega como
+arquivo de texto contendo o caminho em qualquer clone Windows sem Developer Mode, e a skill não
+carregaria para quem for avaliar. A cópia é feita por script, não à mão:
+
+```bash
+python scripts/sync-skill.py            # propaga a fonte para os 3 projetos
+python scripts/sync-skill.py --check    # verifica sincronia; sai com 1 se divergir
 ```
 
 ### Decisões de design
@@ -549,13 +559,14 @@ agente que pergunta e responde a si mesmo na linha seguinte.
 
 ### Anti-patterns do catálogo e por quê
 
-38 anti-patterns em 5 famílias (mínimo exigido: 8). A seleção saiu diretamente da análise manual — cada
+39 anti-patterns em 5 famílias (mínimo exigido: 8). A seleção saiu diretamente da análise manual — cada
 entrada foi observada em pelo menos um dos três projetos, com os sinais de detecção derivados do código
-real, não de listas genéricas de code smell.
+real, não de listas genéricas de code smell. O 39º (SEC-10) veio de um erro da própria skill, descrito
+em "O que a 2ª execução mudou", mais abaixo.
 
 | Família | Qtd. | Por que entrou |
 |---|:--:|---|
-| **SEC** (01–09) | 9 | Os três projetos concentram seus achados CRITICAL em segurança, e todos derivam da falta de fronteira entre camadas — corrigi-los é consequência da refatoração |
+| **SEC** (01–10) | 10 | Os três projetos concentram seus achados CRITICAL em segurança, e todos derivam da falta de fronteira entre camadas — corrigi-los é consequência da refatoração. O SEC-10 (guarda desligada por padrão) foi acrescentado depois da 1ª execução |
 | **ARCH** (01–12) | 12 | Núcleo do desafio: God Class, negócio no controller, dados no controller, apresentação no model, estado global, ausência de DI e de composition root, fronteira transacional, contrato de erro |
 | **PERF** (01–05) | 5 | N+1 aparece nos três projetos; integridade referencial e cache sem limite vieram do projeto 2 |
 | **QUAL** (01–09) | 9 | Duplicação, exceção engolida, callback hell, magic numbers, `print` como log, código morto, nomenclatura |
@@ -605,15 +616,41 @@ funcionalidade nova sob o nome de refatoração, não dividir arquivo pequeno de
 endpoint capturados antes das alterações, comparados depois, incluindo pelo menos um caminho de erro
 (400 e 404).
 
-**Desafio 4 — onde termina refatoração e começa feature.** "Autenticação falsa" é achado CRITICAL, mas
-implementar JWT completo é funcionalidade nova, não refatoração. **Solução:** o RF-19 delimita
-explicitamente — remover a superfície indefensável, parar de simular autenticação, deixar o ponto de
-extensão pronto (decorator/middleware) e registrar a implementação completa na seção "Fora de escopo"
-do relatório. O template de relatório tem essa seção obrigatória.
+**Desafio 4 — onde termina refatoração e começa feature.** "Autenticação falsa" é achado CRITICAL, e a
+fronteira com "funcionalidade nova" é genuinamente ambígua. **Esta foi a decisão que a skill errou na 1ª
+execução** — ver a seção abaixo. A resposta correta, hoje no RF-19: emitir e verificar credencial com
+biblioteca padrão **é** correção do achado e vai executada; o que fica fora é o que muda o produto
+(OAuth, MFA, refresh token, revogação, política de senha). A fronteira deixou de ser "auth é feature" e
+passou a ser "o que fecha a porta é correção; o que muda o produto é feature".
 
 **Desafio 5 — o risco de o agente "pedir confirmação" e continuar.** **Solução:** instrução explícita de
 encerrar o turno após o prompt, preferindo `AskUserQuestion`, com a regra reforçada no princípio nº 1 e
 repetida na lista de erros comuns do template de relatório.
+
+### O que a 2ª execução mudou (e por quê)
+
+A 1ª execução da skill fechou os achados de autenticação dos três projetos criando o decorator/middleware
+correto e deixando-o atrás de uma flag `AUTH_ENABLED` com default `false`. O código estava certo; o
+efeito era nenhum. `DELETE /api/users/:id` e `GET /api/admin/financial-report` continuavam respondendo
+200 a qualquer cliente anônimo, e o comentário do próprio `auth.js` admitia isso — enquanto os três
+relatórios contavam o achado como resolvido.
+
+O defeito não estava no código do decorator: estava no **critério** que aceitou chamar aquilo de
+correção, e esse critério vinha da skill. Cinco pontos foram corrigidos antes de rodar de novo:
+
+| Onde | O que mudou |
+|---|---|
+| `SKILL.md`, princípio 6 (novo) | "Correção inativa não fecha achado": só é resolvido o que está em vigor **na configuração padrão**, com prova de execução |
+| `SKILL.md`, Fase 3.2 | Passo obrigatório de **prova de mitigação** — tabela de qual evidência cada tipo de achado exige, e rota protegida exercitada duas vezes (sem e com credencial) |
+| `SKILL.md`, formato de saída | Seção `Findings Not Resolved` obrigatória; a contagem `n/n` passou a somar apenas os provados |
+| `02-antipattern-catalog.md` | Novo **SEC-10 — guarda de segurança desligada por padrão**, CRITICAL, com o sinal decisivo: "rota decorada respondendo 200 a `curl` sem cabeçalho" |
+| `03-audit-report-template.md` | Vocabulário de status (Resolvido / Mitigado parcialmente / Não resolvido) e a regra de que achado de segurança não se estaciona em "Fora de escopo" |
+| `05-refactoring-playbook.md`, RF-19 | Reescrito: o exemplo da flag virou o **anti-exemplo**, e entraram dois mecanismos reais — token assinado por HMAC quando o projeto tem login (caso A) e chave administrativa fail-closed quando não tem (caso B) |
+
+Rodando a skill corrigida nos três projetos, as rotas passaram a negar acesso anônimo de fato: 10 rotas no
+projeto 1, 2 no projeto 2 e 18 no projeto 3 — cada uma com a requisição e o status colados no
+relatório. A lição que ficou registrada no catálogo é que **guarda desligada é pior que guarda ausente**:
+a ausência aparece na próxima auditoria, a guarda desligada some do radar.
 
 ## C) Resultados
 
@@ -654,6 +691,8 @@ Marcado a partir da execução real da skill em cada projeto. `P1` = `code-smell
 | Entry point claro | ✅ | ✅ | ✅ |
 | Aplicação inicia sem erros | ✅ | ✅ | ✅ |
 | Endpoints originais respondem corretamente | ✅ * | ✅ | ✅ |
+| Rotas administrativas e mutáveis exigem credencial **por padrão** | ✅ | ✅ | ✅ |
+| Achado de segurança fechado com prova de execução no relatório | ✅ | ✅ | ✅ |
 
 > \* **P1:** 17 dos 19 endpoints originais respondem com status e formato idênticos ao baseline.
 > Os outros 2 — `POST /admin/query` (executor de SQL arbitrário) e `POST /admin/reset-db` (reset
@@ -673,7 +712,8 @@ Marcado a partir da execução real da skill em cada projeto. `P1` = `code-smell
 | Config sem hardcoded | grep por segredo literal em `src/` e `app.py` → 0 ocorrências |
 | Error handling central | 16 `try/except` removidos; grep por `except` em `src/views/` → 0 |
 | Aplicação inicia | log de boot: `carga_inicial_concluida produtos=10 usuarios=3` |
-| Endpoints respondem | 24/24 status codes e 10/10 payloads idênticos ao baseline pré-refatoração |
+| Endpoints respondem | 21/21 status codes idênticos ao baseline pré-refatoração (chamadas autenticadas) |
+| Rotas protegidas | 10 rotas fechadas: 12/12 chamadas anônimas respondem 401, e 403 com papel insuficiente; as 9 chamadas a rota pública continuam abertas |
 
 ### Critérios de aceite
 
@@ -683,6 +723,7 @@ Marcado a partir da execução real da skill em cada projeto. `P1` = `code-smell
 | Fase 2 encontra ≥ 5 findings | ✅ (26) | ✅ (25) | ✅ (25) |
 | Fase 2 inclui ≥ 1 CRITICAL ou HIGH | ✅ (13) | ✅ (14) | ✅ (9) |
 | Fase 3 aplicação funciona após refatoração | ✅ | ✅ | ✅ |
+| Fase 3 fecha os achados de segurança de fato (401/403 na configuração padrão) | ✅ (10 rotas) | ✅ (2 rotas) | ✅ (18 rotas) |
 
 ---
 
@@ -997,30 +1038,44 @@ $ SECRET_KEY=exemplo-local PORT=5001 python app.py
 2026-08-13 14:59:14 INFO  werkzeug | 127.0.0.1 - - "GET /produtos HTTP/1.1" 200 -
 ```
 ```console
-GET /health              200  {"counts": {"pedidos": 0, "produtos": 10, "usuarios": 3},
-                                "database": "connected", "status": "ok", "versao": "1.0.0"}
-GET /produtos            200  {"dados": [{"ativo": 1, "categoria": "informatica", ...}], "sucesso": true}
-GET /relatorios/vendas   200  {"dados": {"desconto_aplicavel": 0.0, "faturamento_bruto": 0, ...}, "sucesso": true}
+GET  /health                          200  {"counts": {"pedidos": 0, "produtos": 10, "usuarios": 3},
+                                            "database": "connected", "status": "ok", "versao": "1.0.0"}
+GET  /produtos                        200  {"dados": [{"ativo": 1, "categoria": "informatica", ...}],
+                                            "sucesso": true}
+GET  /relatorios/vendas               401  {"erro": "Autenticação obrigatória", "sucesso": false}
+GET  /relatorios/vendas  (token user) 403  {"erro": "Permissão insuficiente", "sucesso": false}
+GET  /relatorios/vendas  (token adm)  200  {"dados": {"faturamento_bruto": 3500.0,
+                                            "faturamento_liquido": 3430.0, ...}, "sucesso": true}
 ```
 
-O `/health` não devolve mais `secret_key`, `db_path`, `debug` nem `ambiente` — antes os quatro
-apareciam no JSON público.
+Duas coisas visíveis: o `/health` não devolve mais `secret_key`, `db_path`, `debug` nem `ambiente` —
+antes os quatro apareciam no JSON público — e o relatório de vendas deixou de responder a cliente
+anônimo. Os três status na sequência (401 → 403 → 200) são a prova de que a guarda está ativa **sem
+nenhuma variável de ambiente exportada**.
 
 #### Projeto 2 — `ecommerce-api-legacy`
 
 ```console
 $ npm start
 {"ts":"2026-08-13T17:59:27.894Z","level":"info","msg":"carga_inicial_concluida","usuarios":1,"cursos":2}
+{"ts":"2026-08-13T17:59:27.897Z","level":"warn","msg":"ADMIN_API_KEY não definida; chave efêmera gerada
+ para esta execução","chave":"6b256696cafd44975a4a1724d80110fe08ac3d32d59886e2"}
 {"ts":"2026-08-13T17:59:27.899Z","level":"info","msg":"servidor_iniciado","port":3000,"env":"development"}
 {"ts":"2026-08-13T17:59:30.857Z","level":"info","msg":"pagamento_processado","status":"PAID",
  "amount":497,"cartao_final":"4444","gateway":"fake"}
 {"ts":"2026-08-13T17:59:30.902Z","level":"info","msg":"checkout_concluido","enrollment_id":2,"course_id":2}
 ```
 ```console
-POST /api/checkout                200  {"msg":"Sucesso","enrollment_id":2}
-GET  /api/admin/financial-report  200  [{"course":"Clean Architecture","revenue":997,
-                                         "students":[{"student":"Leonan","paid":997}]}, ...]
+POST /api/checkout                            200  {"msg":"Sucesso","enrollment_id":2}
+GET  /api/admin/financial-report              401  {"error":"Credencial administrativa inválida"}
+DELETE /api/users/1                           401  {"error":"Credencial administrativa inválida"}
+GET  /api/admin/financial-report  (com chave) 200  [{"course":"Clean Architecture","revenue":997,
+                                                     "students":[{"student":"Leonan","paid":997}]}, ...]
 ```
+
+O aviso no boot e os dois 401 são a evidência do fail-closed: sem `ADMIN_API_KEY` no ambiente as rotas
+administrativas ficam **fechadas**, não liberadas. O checkout, que é o fluxo público de compra,
+continua respondendo 200 sem credencial.
 
 Este log é a evidência mais direta da correção do finding #2. A mesma operação, na versão original,
 imprimia:
@@ -1050,15 +1105,26 @@ $ SECRET_KEY=exemplo PORT=5003 python app.py
 2026-08-13 14:59:49 INFO  werkzeug | 127.0.0.1 - - "GET /health HTTP/1.1" 200 -
 ```
 ```console
-GET /health        200  {"status": "ok", "timestamp": "2026-08-13 17:59:49.822677"}
-GET /tasks/stats   200  {"cancelled": 1, "completion_rate": 10.0, "done": 1, "in_progress": 2,
-                         "overdue": 2, "pending": 6, "total": 10}
-GET /users/1       200  {"active": true, "created_at": "...", "email": "joao@email.com",
-                         "id": 1, "name": "João Silva", "role": "admin", "tasks": [...]}
+GET  /health                            200  {"status": "ok", "timestamp": "2026-08-13 17:59:49.822677"}
+POST /login                             200  {"message": "Login realizado com sucesso",
+                                              "token": "eyJzdWIiOjEsInJvbGUiOiJhZG1pbiIsImV4cCI6...",
+                                              "user": {"id": 1, "role": "admin", ...}}
+GET  /tasks/stats                       401  {"error": "Autenticação obrigatória"}
+GET  /tasks/stats           (com token) 200  {"cancelled": 1, "completion_rate": 10.0, "done": 1,
+                                              "in_progress": 2, "overdue": 2, "pending": 6, "total": 10}
+GET  /users/1               (com token) 200  {"active": true, "created_at": "...",
+                                              "email": "joao@email.com", "id": 1, "name": "João Silva",
+                                              "role": "admin", "tasks": [...]}
+GET  /reports/summary  (role = user)    403  {"error": "Permissão insuficiente"}
+GET  /reports/summary  (role = manager) 200  {"generated_at": "...", "overview": {"total_tasks": 10,
+                                              "total_users": 3, "total_categories": 4}, ...}
 ```
 
-Duas coisas visíveis aqui: `GET /users/1` não traz mais o campo `password`, e criar o schema virou um
-comando explícito (`scripts/init_db.py`) — antes acontecia sozinho ao importar `app.py`.
+Três coisas visíveis aqui: `GET /users/1` não traz mais o campo `password`; criar o schema virou um
+comando explícito (`scripts/init_db.py`) — antes acontecia sozinho ao importar `app.py`; e o `token`
+voltou à resposta do login, agora assinado e efetivamente exigido. O par 403/200 nas duas últimas
+linhas mostra a coluna `role` decidindo acesso pela primeira vez — ela existia no schema desde o
+início e nenhuma linha de código a consultava.
 
 ---
 
@@ -1090,10 +1156,21 @@ confirmação, o formato do relatório e a estrutura da validação funcionaram 
    em que uma inspeção superficial diria "já está em MVC". Os 25 findings só apareceram porque o
    catálogo mapeia responsabilidade por arquivo em vez de confiar em nome de pasta.
 
-3. **A regra "não implemente funcionalidade nova" foi acionada nos três.** Autenticação real ficou de
-   fora nos três projetos, com o ponto de extensão pronto e o gap registrado. No projeto 2, a troca de
-   `sqlite3` por `node:sqlite` foi recomendada e não executada. No projeto 3, a política de senha não
-   foi endurecida. Em todos os casos a decisão está escrita no relatório, não implícita na omissão.
+3. **A regra "não implemente funcionalidade nova" foi acionada nos três — e foi calibrada errado na
+   primeira vez.** A 1ª execução usou essa regra para deixar a autenticação de fora nos três projetos,
+   entregando decorators desligados e contando o achado como resolvido. A regra é boa, o limite estava
+   no lugar errado: fechar uma rota aberta é correção de achado CRITICAL; o que muda o produto (OAuth,
+   MFA, revogação, política de senha) é que é feature. Depois da correção da skill, os três projetos
+   passaram a proteger de fato — e o que sobrou está nomeado como resíduo, não como achado fechado:
+   token sem revogação (P1 e P3), chave administrativa sem identidade por operador (P2), autorização
+   por papel e não por dono do recurso (P3). No projeto 2 a troca de `sqlite3` por `node:sqlite`
+   continua recomendada e não executada; no projeto 3, a política de senha segue não endurecida. Em
+   todos os casos a decisão está escrita no relatório, não implícita na omissão.
+
+4. **O erro mais caro da skill não foi de código, foi de critério de aceitação.** Nada no decorator
+   estava errado; o que faltava era a regra de que correção só conta quando está em vigor na
+   configuração padrão, com prova de execução. Foi isso que virou o princípio 6 do `SKILL.md`, o
+   anti-pattern SEC-10 e o passo obrigatório de prova de mitigação na Fase 3.2.
 
 **O que a comparação com baseline pegou e a leitura de código não pegaria.** No projeto 2, a ordem do
 relatório financeiro era não-determinística — duas execuções da mesma versão original devolveram
@@ -1101,6 +1178,17 @@ ordens diferentes, efeito dos contadores manuais de callback. Isso só apareceu 
 executava a aplicação em vez de inspecionar o diff.
 
 ## D) Como Executar
+
+### Manutenção da skill
+
+A skill vive em `.claude/skills/refactor-arch/` na raiz e é copiada para os três projetos por script.
+Edite **sempre a fonte** e propague:
+
+```bash
+python scripts/sync-skill.py            # copia a fonte para os 3 projetos
+python scripts/sync-skill.py --check    # verifica se as 3 cópias estão em dia (exit 1 se não)
+```
+
 
 ### Pré-requisitos
 

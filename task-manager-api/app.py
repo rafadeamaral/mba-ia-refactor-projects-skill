@@ -15,6 +15,7 @@ from controllers.report_controller import ReportController
 from controllers.task_controller import TaskController
 from controllers.user_controller import UserController
 from database import db
+from middlewares.auth import emitir_token
 from middlewares.error_handler import registrar_error_handlers
 from routes import (
     category_routes,
@@ -45,7 +46,7 @@ def create_app(config=None) -> Flask:
 
     # Camada de negócio
     task_controller = TaskController(notificacao_service=notificacao_service)
-    user_controller = UserController()
+    user_controller = UserController(emitir_token)
     category_controller = CategoryController()
     report_controller = ReportController()
 

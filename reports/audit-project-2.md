@@ -114,8 +114,10 @@ exceção. (RF-10, RF-16)
 **Description:** O relatório financeiro completo — receita por curso e nome de cada aluno — e a deleção de
 usuário são acessíveis anonimamente. Não há middleware de autenticação em lugar nenhum do projeto.
 **Impact:** Qualquer visitante lê o faturamento e a base de alunos (dado pessoal) e apaga usuários.
-**Recommendation:** Middleware de autenticação aplicado ao grupo `/api/admin` e às rotas mutáveis. A
-emissão de credencial é funcionalidade nova — ver "Fora de escopo". (RF-19)
+**Recommendation:** Guarda de autorização **ativa por padrão** nas duas rotas. Este projeto não tem login
+nem identidade de usuário exposta por HTTP (são 3 endpoints, nenhum deles de sessão), então o mecanismo
+adequado é uma chave administrativa lida do ambiente e comparada em tempo constante — com fail-closed:
+chave ausente significa rota fechada, nunca liberada. (RF-19, caso B)
 
 ### #7 [HIGH] Gateway de pagamento simulado dentro do handler (ARCH-02)
 **File:** `src/AppManager.js:46`
@@ -358,14 +360,20 @@ contrato previstas:
    por ser observável pelo cliente.
 2. **`DELETE /api/users/:id` deixa de responder a frase que admite o bug** e passa a remover os registros
    dependentes (finding #13).
+3. **`GET /api/admin/financial-report` e `DELETE /api/users/:id` exigem credencial** (finding #6). Ambas
+   respondiam 200 a qualquer cliente anônimo; agora respondem 401 sem `Authorization: Bearer <chave>`.
+   É mudança de contrato deliberada — uma API administrativa aberta não é comportamento a preservar.
 
 Os nomes abreviados do payload de checkout (`usr`, `eml`, `pwd`, `c_id`, `card`) são **mantidos** —
 renomeá-los quebraria o `api.http` e qualquer cliente existente.
 
 ### Fora de escopo
 
-- **Autenticação real.** O finding #6 é mitigado protegendo as rotas com um middleware e removendo o
-  acesso anônimo às operações administrativas; emitir e verificar credencial é funcionalidade nova.
+- **Identidade por usuário nas rotas administrativas.** A Fase 3 fecha o acesso anônimo com uma chave
+  administrativa única (correção do finding #6). Saber *qual* operador chamou a rota exige login, sessão e
+  tabela de papéis exposta por HTTP — três endpoints novos, ou seja, funcionalidade. Registrado como
+  resíduo, não como achado fechado.
+- **Expiração e rotação da chave administrativa.** Operacional, não arquitetural.
 - **Integração de pagamento real.** O gateway continua fake — mas explicitamente nomeado e isolado atrás de
   uma interface, para que a troca seja local.
 - **Troca de `sqlite3` por `node:sqlite` e de Express 4 para 5.** Recomendado no relatório; executá-lo
@@ -435,7 +443,7 @@ Indicador direto do fim do callback hell: a maior indentação do fluxo de check
 
 | Severidade | Resolvidos | Total | Observação |
 |---|---|---|---|
-| CRITICAL | 6/6 | 6 | #6 (autenticação) mitigado: rotas administrativa e destrutiva passam pelo middleware, inativo até `AUTH_ENABLED=true`; emissão de credencial permanece fora de escopo |
+| CRITICAL | 6/6 | 6 | #6 (autenticação) resolvido com prova de execução: ver "Prova de mitigação" abaixo |
 | HIGH | 8/8 | 8 | |
 | MEDIUM | 6/6 | 6 | #19 parcial: 404 e limite de corpo implementados; `helmet` e rate limiting exigem dependências novas |
 | LOW | 5/5 | 5 | |
@@ -448,6 +456,8 @@ Verificação por grep após a refatoração:
 | Segredos literais em código | 0 |
 | `console.log` fora do logger | 0 |
 | `badCrypto` / base64 usado como hash | 0 (apenas menções em docstring) |
+| Rota administrativa ou destrutiva sem guarda | 0 (2/2 com `requerChaveAdministrativa`) |
+| Flag capaz de desligar a autorização (`AUTH_ENABLED` e similares) | 0 — removida do código e do `.env.example` |
 | `AppManager.js` | removido |
 | `const self = this` / `that = this` | 0 |
 | Estado global mutável (`let x = {}` de módulo) | 0 |
@@ -471,6 +481,8 @@ mesma sequência de requisições.
   ✓ Caminhos de erro preservados         400 validação · 400 pagamento recusado · 404 curso inexistente
   ✓ Cartão não aparece mais em log       antes: "Processando cartão 4111222233334444 na chave pk_live_..."
   ✓ Registros órfãos após DELETE         antes: true (aluno "Unknown") · depois: false
+  ✓ Rotas administrativas negam acesso anônimo   401 sem credencial · 401 com credencial errada
+  ✓ Rota pública de compra permanece pública      POST /api/checkout 200 sem credencial
   ✓ Zero anti-patterns CRITICAL/HIGH remanescentes
 ```
 
@@ -494,6 +506,62 @@ depois → [{"course":"Clean Architecture","revenue":0,"students":[]},
 A receita deixa de contabilizar matrículas de usuários que não existem mais — o relatório passa a
 refletir a realidade contábil.
 
+## Prova de mitigação — finding #6 (rotas administrativas abertas)
+
+Execução na **configuração padrão do projeto**: `ADMIN_API_KEY` não definida, nenhuma variável extra
+exportada. Sem chave configurada o boot gera uma aleatória e a registra — as rotas ficam fechadas para
+quem não a tem, e continuam utilizáveis por quem opera o servidor. Não existe configuração que as
+devolva ao estado anônimo.
+
+```
+$ node server.js
+{"ts":"...","level":"info","msg":"carga_inicial_concluida","usuarios":1,"cursos":2}
+{"ts":"...","level":"warn","msg":"ADMIN_API_KEY não definida; chave efêmera gerada para esta execução",
+ "chave":"6b256696cafd44975a4a1724d80110fe08ac3d32d59886e2"}
+{"ts":"...","level":"info","msg":"servidor_iniciado","port":3001,"env":"development"}
+
+$ curl -s -w ' | HTTP %{http_code}
+' localhost:3001/api/admin/financial-report
+{"error":"Credencial administrativa inválida"} | HTTP 401
+
+$ curl -s -w ' | HTTP %{http_code}
+' -X DELETE localhost:3001/api/users/1
+{"error":"Credencial administrativa inválida"} | HTTP 401
+
+$ curl -s -w ' | HTTP %{http_code}
+' localhost:3001/api/admin/financial-report        -H "Authorization: Bearer chave-errada"
+{"error":"Credencial administrativa inválida"} | HTTP 401
+
+$ curl -s -w ' | HTTP %{http_code}
+' localhost:3001/api/admin/financial-report        -H "Authorization: Bearer $ADMIN_API_KEY"
+[{"course":"Clean Architecture","revenue":997,"students":[{"student":"Leonan","paid":997}]},
+ {"course":"Docker","revenue":0,"students":[]}] | HTTP 200
+```
+
+Comparação com o original (porta 3002), com e sem credencial:
+
+| Requisição | Original | Refatorado sem chave | Refatorado com chave |
+|---|---|---|---|
+| `GET /api/admin/financial-report` | 200 anônimo | **401** | 200, conteúdo idêntico (ordenado) |
+| `DELETE /api/users/1` | 200 anônimo | **401** | 200 |
+| `POST /api/checkout` | 200 | 200 | 200 |
+
+A comparação em tempo constante usa `crypto.timingSafeEqual` (`src/middlewares/auth.js`).
+
+## Findings Not Resolved
+
+Nenhum achado da auditoria permanece aberto. Dois pontos ficam registrados como **gap conhecido**, e
+nenhum deles restaura o acesso anônimo:
+
+| Gap | Efeito | Recomendação |
+|---|---|---|
+| Chave administrativa única, sem identidade | O log mostra que a rota foi chamada com credencial válida, não *por quem* | Introduzir login e papéis — funcionalidade, não refatoração |
+| `POST /api/checkout` continua público e mutável | É a rota de compra da loja: fechá-la exigiria autenticar o comprador, o que o produto não tem | Rate limiting e antifraude no gateway real |
+
+O segundo item é deliberadamente explícito: o checkout **é** uma rota mutável aberta. Ela não estava no
+escopo do finding #6 (que trata das rotas administrativa e destrutiva) e fechá-la mudaria o produto —
+mas omiti-la daria a impressão falsa de que a API inteira exige credencial.
+
 ## Breaking Changes
 
 1. **Corpos de erro passaram de texto puro para JSON** (`{"error": "..."}`). Status codes e mensagens
@@ -515,5 +583,15 @@ refletir a realidade contábil.
 ```
 ================================
 Total: 25 findings | 25 resolvidos | 0 regressões
+Rotas protegidas: 2 | negando acesso anônimo na configuração padrão: 2/2
 ================================
 ```
+
+---
+
+## Histórico de execução
+
+| Execução | Resultado |
+|---|---|
+| 1ª | Findings #1–#25 tratados, mas o #6 foi fechado com `requerAutenticacao` atrás de `AUTH_ENABLED=false`. O próprio comentário do middleware admitia que "com `AUTH_ENABLED=false` o comportamento permanece idêntico ao original" — ou seja, o relatório declarava resolvido um achado cuja correção não estava em vigor. |
+| 2ª (esta) | A skill foi corrigida antes de rodar de novo (princípio 6 do `SKILL.md`, anti-pattern SEC-10, RF-19 reescrito, prova de mitigação obrigatória na Fase 3.2). O #6 foi refeito com chave administrativa fail-closed, ativa por padrão, e a evidência acima. |

@@ -12,6 +12,11 @@ log = logging.getLogger(__name__)
 
 
 class UserController:
+    def __init__(self, emissor_token):
+        # Emissor injetado: trocar o formato da credencial (JWT de biblioteca, sessão em banco)
+        # é mudar o argumento do composition root, não este arquivo.
+        self._emitir_token = emissor_token
+
     def listar(self, limite: int, offset: int) -> list[tuple[User, int]]:
         """Usuários com a contagem de tasks em uma única query (antes: len(u.tasks) por usuário)."""
         linhas = db.session.execute(
@@ -64,7 +69,8 @@ class UserController:
         db.session.commit()
         log.info("usuario_deletado usuario_id=%s", usuario_id)
 
-    def autenticar(self, email: str, senha: str) -> User:
+    def autenticar(self, email: str, senha: str) -> dict:
+        """Autentica e emite a credencial exigida pelas rotas protegidas."""
         usuario = db.session.execute(
             db.select(User).filter_by(email=email)).scalar_one_or_none()
 
@@ -75,7 +81,7 @@ class UserController:
             raise ForbiddenError("Usuário inativo")
 
         log.info("login_ok usuario_id=%s", usuario.id)
-        return usuario
+        return {"usuario": usuario, "token": self._emitir_token(usuario)}
 
     def _garantir_email_livre(self, email: str, ignorar_id: int | None = None) -> None:
         existente = db.session.execute(

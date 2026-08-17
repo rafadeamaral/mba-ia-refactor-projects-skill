@@ -127,8 +127,10 @@ não opcional. Duplicar o literal em dois arquivos garante que uma futura troca 
 `PUT /pedidos/<id>/status` e as rotas `/admin/*`. O campo `tipo` ("admin"/"cliente") existe no schema
 (`database.py:32`) e nunca é consultado.
 **Impact:** Toda a superfície mutável da API é anônima. A autorização foi modelada e não implementada.
-**Recommendation:** Remover a superfície indefensável (#2), deixar o ponto de extensão pronto (decorator
-`@requer_autenticacao`) e registrar a emissão de token real como funcionalidade fora de escopo. (RF-19)
+**Recommendation:** Remover a superfície indefensável (#2) e **proteger de fato** as rotas administrativas
+e mutáveis: emitir credencial verificável no login e exigi-la nos handlers, com a guarda ativa na
+configuração padrão. Emitir e verificar credencial com biblioteca padrão é correção deste achado, não
+funcionalidade nova. (RF-19)
 
 ### #7 [CRITICAL] God Module (ARCH-01)
 **File:** `models.py:1-314`
@@ -389,9 +391,10 @@ a refatoração, com três exceções deliberadas:
 
 ### Fora de escopo
 
-- **Emissão e verificação de JWT.** Autenticação real é funcionalidade nova, não refatoração. A Fase 3
-  remove a superfície indefensável, para de simular autenticação e deixa o decorator `@requer_autenticacao`
-  pronto; a emissão de token fica registrada como recomendação.
+- **Revogação de credencial, refresh token e rotação de chave.** A Fase 3 emite e verifica o token
+  (correção do finding #6); invalidar um token antes da expiração exige armazenamento de sessão, que é
+  decisão de produto. Registrado como resíduo, não como achado fechado.
+- **OAuth, MFA e política de senha.** Mudam o produto, não a arquitetura.
 - **Migração de banco.** SQLite permanece; trocar de banco não é refatoração arquitetural.
 - **Suíte de testes automatizados.** A validação da Fase 3 usa o baseline de endpoints capturado antes das
   alterações; escrever testes unitários é trabalho subsequente (agora viável, com as camadas separadas).
@@ -468,7 +471,7 @@ code-smells-project/
 
 | Severidade | Resolvidos | Total | Observação |
 |---|---|---|---|
-| CRITICAL | 7/7 | 7 | #6 (autenticação) mitigado: superfície indefensável removida e ponto de extensão criado; emissão de token permanece fora de escopo |
+| CRITICAL | 7/7 | 7 | #6 (autenticação) resolvido com prova de execução: ver "Prova de mitigação" abaixo |
 | HIGH | 6/6 | 6 | |
 | MEDIUM | 8/8 | 8 | |
 | LOW | 5/5 | 5 | |
@@ -486,6 +489,8 @@ Verificação por grep após a refatoração:
 | `debug=True` hardcoded | 0 |
 | `try/except` dentro de rotas | 0 |
 | `print()` como log em código de aplicação | 0 (mantido apenas em `scripts/`, que é CLI) |
+| Rota mutável ou administrativa sem decorator de guarda | 0 (10 rotas protegidas: 7 `@requer_papel`, 3 `@requer_autenticacao`) |
+| Flag capaz de desligar a autenticação (`AUTH_ENABLED` e similares) | 0 — removida do código e do `.env.example` |
 
 ## Validation
 
@@ -513,6 +518,83 @@ Diff completo entre baseline e resultado — única divergência é o endpoint r
 > POST /admin/query 404
 ```
 
+## Prova de mitigação — finding #6 (autenticação)
+
+Execução na **configuração padrão do projeto**: nenhuma variável de ambiente exportada além do que o
+`.env.example` já traz, e não existe chave capaz de desligar a verificação.
+
+Política de acesso aplicada, rota a rota:
+
+| Acesso | Endpoints |
+|---|---|
+| Público | `GET /`, `GET /health`, `GET /produtos`, `GET /produtos/busca`, `GET /produtos/<id>`, `POST /login`, `POST /usuarios` (cadastro) |
+| Autenticado | `GET /usuarios/<id>`, `POST /pedidos`, `GET /pedidos/usuario/<id>` |
+| Admin | `POST/PUT/DELETE /produtos`, `GET /pedidos`, `PUT /pedidos/<id>/status`, `GET /usuarios`, `GET /relatorios/vendas` |
+
+```
+$ curl -s -w '
+HTTP %{http_code}
+' localhost:5001/relatorios/vendas
+{"erro":"Autenticação obrigatória","sucesso":false}
+HTTP 401
+
+$ curl -s -w '
+HTTP %{http_code}
+' localhost:5001/relatorios/vendas -H "Authorization: Bearer $TOKEN_CLIENTE"
+{"erro":"Permissão insuficiente","sucesso":false}
+HTTP 403
+
+$ curl -s -w '
+HTTP %{http_code}
+' localhost:5001/relatorios/vendas -H "Authorization: Bearer ${TOKEN_ADMIN%?}X"
+{"erro":"Autenticação obrigatória","sucesso":false}     # assinatura adulterada em 1 caractere
+HTTP 401
+
+$ curl -s -w '
+HTTP %{http_code}
+' localhost:5001/relatorios/vendas -H "Authorization: Bearer $TOKEN_ADMIN"
+{"dados":{"desconto_aplicavel":70.0,"faturamento_bruto":3500.0,"faturamento_liquido":3430.0,
+"pedidos_aprovados":1,"pedidos_cancelados":0,"pedidos_pendentes":0,"ticket_medio":3500.0,
+"total_pedidos":1},"sucesso":true}
+HTTP 200
+```
+
+Varredura completa, sem credencial — 12 chamadas cobrindo as 10 rotas protegidas (duas delas
+exercitadas duas vezes, com id existente e inexistente):
+
+```
+  GET    /usuarios                    -> 401  NEGADO ok
+  GET    /usuarios/1                  -> 401  NEGADO ok
+  GET    /usuarios/9999               -> 401  NEGADO ok
+  POST   /produtos                    -> 401  NEGADO ok
+  PUT    /produtos/1                  -> 401  NEGADO ok
+  DELETE /produtos/3                  -> 401  NEGADO ok
+  POST   /pedidos                     -> 401  NEGADO ok
+  GET    /pedidos                     -> 401  NEGADO ok
+  GET    /pedidos/usuario/1           -> 401  NEGADO ok
+  PUT    /pedidos/1/status            -> 401  NEGADO ok
+  GET    /relatorios/vendas           -> 401  NEGADO ok
+  POST   /produtos (payload inválido) -> 401  NEGADO ok
+
+  Chamadas a rota protegida negadas: 12/12  (10 rotas distintas)
+  Públicas ainda acessíveis:          9/9
+  Status iguais ao original:         21/21
+```
+
+O mecanismo é um token assinado com HMAC-SHA256 sobre a `SECRET_KEY`, emitido por `POST /login`
+(`src/middlewares/auth.py`), sem dependência nova em `requirements.txt`.
+
+## Findings Not Resolved
+
+Nenhum achado da auditoria permanece aberto. Resíduos conhecidos da correção do #6, todos com
+severidade abaixo do achado original e nenhum deles restaurando o acesso anônimo:
+
+| Resíduo | Efeito | Recomendação |
+|---|---|---|
+| Token sem revogação | Credencial vazada vale até expirar (1h por padrão, `TOKEN_TTL_SEGUNDOS`) | Armazenar sessões e conferir na verificação |
+| Sem refresh token | Cliente precisa refazer login a cada expiração | Emitir par access/refresh |
+| `SECRET_KEY` efêmera quando ausente do ambiente | Tokens deixam de valer a cada restart em desenvolvimento | Definir `SECRET_KEY` no `.env` |
+
 ## Breaking Changes
 
 1. **`POST /admin/query` removido** (finding #2). Executava SQL arbitrário sem autenticação.
@@ -530,9 +612,29 @@ Diff completo entre baseline e resultado — única divergência é o endpoint r
 7. **`PUT /pedidos/<id>/status` retorna 404 para pedido inexistente** (finding #17). Antes respondia
    200 sem ter alterado nada.
 8. **Erros de tipo em parâmetros retornam 400 em vez de 500** (finding #17). Ex.: `?preco_min=abc`.
+9. **10 rotas que respondiam 200 anonimamente agora exigem credencial** (finding #6) — as listadas como
+   "Autenticado" e "Admin" na tabela acima. É a mudança de contrato mais visível desta refatoração, e é
+   deliberada: preservar comportamento não pode significar preservar uma API administrativa aberta.
+   Clientes existentes precisam chamar `POST /login` e enviar `Authorization: Bearer <token>`.
+10. **`POST /login` passou a devolver o campo `token`.** O login já existia e respondia 200 sem emitir
+    credencial alguma; o campo é aditivo e as demais chaves da resposta não mudaram.
 
 ```
 ================================
 Total: 26 findings | 26 resolvidos | 0 regressões
+Rotas protegidas: 10 | chamadas anônimas negadas na configuração padrão: 12/12
 ================================
 ```
+
+---
+
+## Histórico de execução
+
+| Execução | Resultado |
+|---|---|
+| 1ª | Findings #1–#26 tratados, mas o #6 foi fechado com o decorator atrás de `AUTH_ENABLED=false`. Na prática as rotas continuaram anônimas: correção declarada, não aplicada. |
+| 2ª (esta) | A skill foi corrigida antes de rodar de novo — princípio 6 do `SKILL.md`, anti-pattern SEC-10 no catálogo, RF-19 reescrito e prova de mitigação obrigatória na Fase 3.2. O #6 foi refeito com emissão e verificação reais, ativas por padrão, e a evidência acima. |
+
+A primeira execução é o motivo de o catálogo ter ganhado o SEC-10 ("guarda de segurança desligada por
+padrão"): o defeito não estava no código do decorator, estava no critério que aceitou chamá-lo de
+correção.

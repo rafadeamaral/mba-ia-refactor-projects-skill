@@ -69,8 +69,24 @@ diferença é que a regra está isolada em `src/services/payment.gateway.js`, no
 tocar no fluxo de checkout. O número do cartão **não é mais registrado em log** (apenas os 4 últimos
 dígitos).
 
-## Autenticação
+## Autorização das rotas administrativas
 
-A API não possui autenticação — isso já era verdade antes da refatoração e implementá-la é
-funcionalidade nova. O ponto de extensão está pronto em `src/middlewares/auth.js` e já aplicado às
-rotas administrativa e destrutiva, inativo enquanto `AUTH_ENABLED=false`.
+`GET /api/admin/financial-report` e `DELETE /api/users/:id` **exigem credencial**, e não há
+configuração que desligue a verificação — a versão anterior desta refatoração deixava o middleware
+atrás de `AUTH_ENABLED=false`, o que na prática mantinha as duas rotas anônimas.
+
+Este projeto não tem login nem identidade de usuário exposta por HTTP, então a credencial é uma chave
+administrativa lida do ambiente e comparada em tempo constante (`src/middlewares/auth.js`):
+
+```bash
+ADMIN_API_KEY=uma-chave-longa-e-aleatoria node server.js
+
+curl localhost:3000/api/admin/financial-report -H "Authorization: Bearer uma-chave-longa-e-aleatoria"
+```
+
+Sem `ADMIN_API_KEY` no ambiente, o boot gera uma chave aleatória e a registra no log — as rotas
+continuam **fechadas** para quem não a tem. Chave ausente nunca significa rota liberada.
+
+`POST /api/checkout` permanece público: é o fluxo de compra da loja, e autenticar o comprador exigiria
+um sistema de contas que o produto não tem. Isso está registrado como gap conhecido no relatório, não
+como achado resolvido.

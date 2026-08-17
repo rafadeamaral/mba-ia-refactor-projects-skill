@@ -11,6 +11,13 @@ async function main() {
     const db = await createDatabase(config.databasePath);
     await initSchema(db);
 
+    if (config.adminApiKeyEfemera) {
+        logger.warn('admin_api_key_ausente', {
+            msg: 'ADMIN_API_KEY não definida; chave efêmera gerada para esta execução',
+            chave: config.adminApiKey,
+        });
+    }
+
     const app = createApp({ db });
     const server = app.listen(config.port, () => {
         logger.info('servidor_iniciado', { port: config.port, env: config.env });

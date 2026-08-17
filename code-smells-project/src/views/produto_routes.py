@@ -1,5 +1,12 @@
-"""Rotas de produtos — handlers finos: HTTP entra, controller decide, DTO sai."""
+"""Rotas de produtos — handlers finos: HTTP entra, controller decide, DTO sai.
+
+Política de acesso (finding #6): o catálogo é leitura pública por natureza do produto; a
+escrita — criar, atualizar e deletar produto — passou a exigir credencial de admin.
+"""
 from flask import Blueprint, jsonify, request
+
+from src.constants import TIPO_USUARIO_ADMIN
+from src.middlewares.auth import requer_papel
 
 from src.validators import produto_schema
 from src.validators.common import numero_opcional, parse_paginacao
@@ -38,6 +45,7 @@ def criar_blueprint(controller) -> Blueprint:
         return jsonify({"dados": produto_para_resposta(produto), "sucesso": True}), 200
 
     @bp.route("/produtos", methods=["POST"])
+    @requer_papel(TIPO_USUARIO_ADMIN)
     def criar():
         dados = produto_schema.validar(request.get_json(silent=True))
         produto_id = controller.criar(dados)
@@ -46,12 +54,14 @@ def criar_blueprint(controller) -> Blueprint:
         }), 201
 
     @bp.route("/produtos/<int:produto_id>", methods=["PUT"])
+    @requer_papel(TIPO_USUARIO_ADMIN)
     def atualizar(produto_id):
         dados = produto_schema.validar(request.get_json(silent=True))
         controller.atualizar(produto_id, dados)
         return jsonify({"sucesso": True, "mensagem": "Produto atualizado"}), 200
 
     @bp.route("/produtos/<int:produto_id>", methods=["DELETE"])
+    @requer_papel(TIPO_USUARIO_ADMIN)
     def deletar(produto_id):
         controller.deletar(produto_id)
         return jsonify({"sucesso": True, "mensagem": "Produto deletado"}), 200

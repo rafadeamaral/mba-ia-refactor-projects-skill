@@ -20,6 +20,9 @@ class Settings:
         self.HOST = os.getenv("HOST", "127.0.0.1")
         self.PORT = int(os.getenv("PORT", "5000"))
         self.LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+        # Validade do token emitido no login, em segundos. Não existe flag para desligar a
+        # verificação: guarda que se desliga por configuração não protege nada (SEC-10).
+        self.TOKEN_TTL = int(os.getenv("TOKEN_TTL_SEGUNDOS", "3600"))
         self.CORS_ORIGINS = [
             origem.strip()
             for origem in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")

@@ -66,14 +66,38 @@ As listagens aceitam `?limit=` e `?offset=` (padrão 50, teto 200).
 
 - **`password` não aparece mais em nenhuma resposta.** Era devolvido em `GET /users/<id>`,
   `POST /users`, `PUT /users/<id>` e no login, porque a serialização vinha do `to_dict()` do model.
-- **`POST /login` não devolve mais `token`.** O valor era `'fake-jwt-token-<id>'` e nenhuma rota o
-  verificava — devolver credencial simulada é pior que não devolver nenhuma.
+- **`POST /login` devolve um `token` de verdade.** O valor anterior era `'fake-jwt-token-<id>'`,
+  previsível e que nenhuma rota verificava; agora é assinado, expira e é exigido pelas rotas protegidas.
 - **Senhas passam a usar hash com salt** (era MD5 puro). As credenciais antigas continuam funcionando:
   o login detecta o formato legado e regrava no formato novo.
 - **Erros seguem um formato único** (`{"error": "..."}`), produzido pelo error handler central.
 
 ## Autenticação
 
-A API não possui autenticação — isso já era verdade antes, e implementá-la é funcionalidade nova. O
-ponto de extensão está pronto em `middlewares/auth.py` (`@requer_autenticacao`, `@requer_papel`),
-inativo enquanto `AUTH_ENABLED=false`.
+18 das 22 rotas **exigem credencial**, e não há configuração que desligue a verificação — a versão
+anterior desta refatoração deixava os decorators atrás de `AUTH_ENABLED=false`, o que na prática
+mantinha a API aberta.
+
+`POST /login` devolve um token assinado com HMAC-SHA256 sobre a `SECRET_KEY` (`middlewares/auth.py`,
+sem dependência nova). Envie-o em `Authorization: Bearer <token>`.
+
+```bash
+TOKEN=$(curl -s -X POST localhost:5000/login \
+        -H 'Content-Type: application/json' \
+        -d '{"email":"joao@email.com","password":"1234"}' | jq -r .token)
+
+curl localhost:5000/reports/summary -H "Authorization: Bearer $TOKEN"
+```
+
+| Acesso | Endpoints |
+|---|---|
+| Público | `GET /`, `GET /health`, `POST /login`, `POST /users` |
+| Autenticado | todo o `/tasks*`, `GET/PUT /users/<id>`, `GET /users/<id>/tasks`, `GET /categories` |
+| `admin` ou `manager` | `POST/PUT/DELETE /categories`, `GET /reports/summary`, `GET /reports/user/<id>` |
+| `admin` | `GET /users`, `DELETE /users/<id>` |
+
+Sem credencial essas rotas respondem **401**; com papel insuficiente, **403**. É aqui que a coluna
+`role` — presente no schema desde o início e nunca consultada — passa a ter efeito.
+
+Fora de escopo, e registrados no relatório: revogação de token, refresh token e autorização por dono do
+recurso (hoje qualquer usuário autenticado edita qualquer task).

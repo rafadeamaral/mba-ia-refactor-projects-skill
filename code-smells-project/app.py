@@ -11,6 +11,7 @@ from src.controllers.relatorio_controller import RelatorioController
 from src.controllers.usuario_controller import UsuarioController
 from src.database.connection import close_connection, get_connection
 from src.database.schema import init_schema
+from src.middlewares.auth import emitir_token
 from src.middlewares.error_handler import registrar_error_handlers
 from src.models.pedido_model import PedidoModel
 from src.models.produto_model import ProdutoModel
@@ -51,7 +52,7 @@ def create_app(connection_provider=get_connection) -> Flask:
 
     # Camada de negócio
     produto_controller = ProdutoController(produto_model)
-    usuario_controller = UsuarioController(usuario_model)
+    usuario_controller = UsuarioController(usuario_model, emitir_token)
     pedido_controller = PedidoController(pedido_model, produto_model, notificacao_service)
     relatorio_controller = RelatorioController(pedido_model)
     health_controller = HealthController(produto_model, usuario_model, pedido_model)

@@ -101,8 +101,10 @@ existente. (RF-03)
 (`User.is_admin()`, `models/user.py:34`) e nunca é invocado.
 **Impact:** `DELETE /users/<id>`, `PUT /tasks/<id>`, `/reports/summary` e o CRUD de categorias são
 acessíveis anonimamente. A autorização foi projetada e não implementada.
-**Recommendation:** Remover o token falso (não simular o que não existe), aplicar decorator de
-autenticação nas rotas mutáveis e registrar a emissão real como fora de escopo. (RF-19)
+**Recommendation:** Substituir o token falso por uma credencial verificável emitida no login, e exigi-la
+nas rotas protegidas com a guarda ativa por padrão. O campo `role`, hoje decorativo, passa a decidir o
+acesso às rotas administrativas e de gestão. Emitir e verificar credencial com biblioteca padrão é
+correção deste achado, não funcionalidade nova. (RF-19, caso A)
 
 ### #4 [CRITICAL] Segredos hardcoded (SEC-01)
 **File:** `app.py:13`, `services/notification_service.py:7-10`
@@ -388,8 +390,11 @@ Os **22 endpoints** devem responder com o mesmo método, path, status e formato.
 
 ### Fora de escopo
 
-- **Emissão e verificação de JWT.** O finding #3 é resolvido removendo a simulação e deixando o
-  decorator pronto; implementar autenticação de verdade é funcionalidade nova.
+- **Revogação de credencial, refresh token e rotação de chave.** A Fase 3 emite e verifica o token
+  (correção do finding #3); invalidar um token antes de expirar exige armazenamento de sessão, que é
+  decisão de produto. Registrado como resíduo, não como achado fechado.
+- **OAuth, MFA e autorização por dono do recurso.** Hoje qualquer usuário autenticado edita qualquer
+  task; restringir por dono muda o produto — e está registrado como gap conhecido.
 - **Migração de senhas existentes.** MD5 não é reversível: o login faz re-hash quando a senha confere,
   e as contas que nunca logarem permanecem com o hash antigo até um reset.
 - **Adoção de `marshmallow`.** Declarado no `requirements.txt` e não usado; a camada `validators/` será
@@ -485,7 +490,7 @@ A regra do playbook é "adotar ou remover, nunca manter as duas versões". Aplic
 
 | Severidade | Resolvidos | Total | Observação |
 |---|---|---|---|
-| CRITICAL | 4/4 | 4 | #3 (autenticação) mitigado: token falso removido e decorator pronto; emissão real permanece fora de escopo |
+| CRITICAL | 4/4 | 4 | #3 (autenticação) resolvido com prova de execução: ver "Prova de mitigação" abaixo |
 | HIGH | 5/5 | 5 | |
 | MEDIUM | 9/9 | 9 | |
 | LOW | 5/6 | 6 | #25 (senha mínima de 4 caracteres) **não alterado** — ver abaixo |
@@ -510,6 +515,8 @@ Verificação por grep após a refatoração:
 | `try/except` dentro de rotas | 0 |
 | `print()` em rotas/controllers/models | 0 |
 | Maior handler de rota | 12 linhas (antes: 90) |
+| Rota protegida sem decorator de guarda | 0 (18 rotas protegidas: 11 `@requer_autenticacao`, 7 `@requer_papel`) |
+| Flag capaz de desligar a autenticação (`AUTH_ENABLED` e similares) | 0 — removida do código e do `.env.example` |
 
 ## Validation
 
@@ -524,7 +531,9 @@ refatorado exercitado com a mesma sequência, também recém-semeado.
   ✓ Caminhos de erro preservados      400 validação · 404 inexistente · 409 email duplicado · 401 login
   ✓ GET /users/1 expõe 'password'     True → False
   ✓ POST /login expõe 'password'      True → False
-  ✓ POST /login expõe 'token'         True → False
+  ✓ POST /login devolve token real    'fake-jwt-token-1' → token assinado com HMAC, com expiração
+  ✓ 22/22 chamadas anônimas a rota protegida negadas (401) — 18 rotas distintas
+  ✓ 7/7 rotas de admin/gestão negam papel insuficiente (403)
   ✓ Import puro de app.py cria banco   True → False
   ✓ Cascade de deleção equivalente     original e refatorado: 10 tasks → 7 após DELETE /users/3
   ✓ Zero anti-patterns CRITICAL/HIGH remanescentes
@@ -545,12 +554,80 @@ normalizando apenas os campos voláteis por construção (`created_at`, `updated
 (`password`, `token`). Inclui `/reports/summary`, que agrega 12 métricas, e `/tasks/stats` — os dois
 pontos onde a substituição de 12 `COUNT` por `GROUP BY` poderia ter mudado resultado. Nenhum mudou.
 
+## Prova de mitigação — finding #3 (autenticação simulada)
+
+Execução na **configuração padrão do projeto**: nenhuma variável exportada além do que o `.env.example`
+traz, e não existe chave capaz de desligar a verificação. A coluna `role` — que existia no schema desde
+o início e nenhuma linha de código consultava — passou a decidir o acesso.
+
+| Acesso | Endpoints |
+|---|---|
+| Público | `GET /`, `GET /health`, `POST /login`, `POST /users` (cadastro) |
+| Autenticado (qualquer papel) | todo o `/tasks*`, `GET/PUT /users/<id>`, `GET /users/<id>/tasks`, `GET /categories` |
+| `admin` ou `manager` | `POST/PUT/DELETE /categories`, `GET /reports/summary`, `GET /reports/user/<id>` |
+| `admin` | `GET /users`, `DELETE /users/<id>` |
+
+```
+$ curl -s -w '\nHTTP %{http_code}\n' localhost:5003/reports/summary
+{"error":"Autenticação obrigatória"}
+HTTP 401
+
+$ curl -s ... localhost:5003/reports/summary -H "Authorization: Bearer $TOKEN_USER"      # role=user
+{"error":"Permissão insuficiente"}
+HTTP 403
+
+$ curl -s ... localhost:5003/reports/summary -H "Authorization: Bearer $TOKEN_MANAGER"   # role=manager
+{"generated_at":"...","overview":{"total_categories":4,"total_tasks":10,"total_users":3},...}
+HTTP 200
+
+$ curl -s ... localhost:5003/users -H "Authorization: Bearer $TOKEN_MANAGER"   # rota exclusiva de admin
+{"error":"Permissão insuficiente"}
+HTTP 403
+```
+
+Login devolvendo credencial real — o `token` voltou à resposta, agora assinado e com expiração:
+
+```
+$ curl -s -X POST localhost:5003/login -d '{"email":"joao@email.com","password":"1234"}'
+{
+    "message": "Login realizado com sucesso",
+    "token": "eyJzdWIiOjEsInJvbGUiOiJhZG1pbiIsImV4cCI6MTc4NzAwNDA1OH0.tDbSqwh1N0yAwfDZkD3r-2-y7m7_Ce9S10DASj6Myds",
+    "user": {"active": true, "created_at": "...", "email": "joao@email.com", "id": 1,
+             "name": "João Silva", "role": "admin"}
+}
+```
+
+Varredura completa, na configuração padrão:
+
+```
+  Chamadas anônimas negadas:    22/22   (18 rotas distintas)
+  403 por papel insuficiente:    7/7
+  Status iguais ao original:    27/27
+  Formatos iguais ao original:  27/27
+```
+
+O mecanismo é um token assinado com HMAC-SHA256 sobre a `SECRET_KEY` (`middlewares/auth.py`), sem
+dependência nova em `requirements.txt`.
+
+## Findings Not Resolved
+
+O único achado deliberadamente não alterado continua sendo o **#25** (senha mínima de 4 caracteres),
+pelo motivo já registrado: é política de produto. Resíduos da correção do #3, nenhum deles restaurando
+o acesso anônimo:
+
+| Resíduo | Efeito | Recomendação |
+|---|---|---|
+| Autorização por papel, não por dono do recurso | Um usuário autenticado edita a task de outro | Comparar `g.usuario["sub"]` com `task.user_id` — muda o produto |
+| Token sem revogação | Credencial vazada vale até expirar (1h, `TOKEN_TTL_SEGUNDOS`) | Armazenar sessões e conferir na verificação |
+| `SECRET_KEY` efêmera quando ausente | Tokens deixam de valer a cada restart em desenvolvimento | Definir `SECRET_KEY` no `.env` |
+
 ## Breaking Changes
 
 1. **`password` removido de todas as respostas** (finding #1): `GET /users/<id>`, `POST /users`,
    `PUT /users/<id>` e o objeto `user` do login. As demais chaves permanecem idênticas.
-2. **`token` removido de `POST /login`** (finding #3). O valor era `'fake-jwt-token-<id>'`, que nenhuma
-   rota verificava.
+2. **`token` de `POST /login` deixou de ser falso** (finding #3). O valor era `'fake-jwt-token-<id>'`,
+   previsível e que nenhuma rota verificava; agora é assinado com HMAC sobre a `SECRET_KEY`, expira e é
+   exigido pelas rotas protegidas. A chave `token` permanece no mesmo lugar da resposta.
 3. **Formato de erro unificado** para `{"error": "..."}`. Os status codes são idênticos; algumas
    mensagens foram unificadas entre POST e PUT (ex.: "Senha muito curta" e "Senha deve ter no mínimo 4
    caracteres" viraram a mesma mensagem).
@@ -558,9 +635,27 @@ pontos onde a substituição de 12 `COUNT` por `GROUP BY` poderia ter mudado res
    comportamento é o anterior para os volumes atuais.
 5. **Hash de senha migrado para formato com salt** (finding #2). As credenciais existentes continuam
    funcionando: o login detecta o formato MD5 legado e regrava no novo.
+6. **18 das 22 rotas passaram a exigir credencial** (finding #3) — todas menos `/`, `/health`,
+   `POST /login` e `POST /users`. É a mudança de contrato mais visível desta refatoração, e é
+   deliberada: uma API de tarefas com `DELETE /users/<id>` anônimo não é comportamento a preservar.
+   Clientes existentes passam a chamar `POST /login` e enviar `Authorization: Bearer <token>`.
 
 ```
 ================================
 Total: 25 findings | 24 resolvidos | 1 deliberadamente não alterado | 0 regressões
+Rotas protegidas: 18 | chamadas anônimas negadas na configuração padrão: 22/22
 ================================
 ```
+
+---
+
+## Histórico de execução
+
+| Execução | Resultado |
+|---|---|
+| 1ª | Findings #1–#25 tratados, mas o #3 foi fechado com os decorators atrás de `AUTH_ENABLED=false`. O token falso saiu (acerto) e as 22 rotas continuaram anônimas (erro) — o relatório contava o achado como mitigado enquanto `DELETE /users/<id>` respondia 200 a qualquer cliente. |
+| 2ª (esta) | A skill foi corrigida antes de rodar de novo (princípio 6 do `SKILL.md`, anti-pattern SEC-10, RF-19 reescrito, prova de mitigação obrigatória na Fase 3.2). O #3 foi refeito com emissão e verificação reais, `role` finalmente consultado, e a evidência acima. |
+
+Correção adicional detectada pela revalidação: `POST /tasks` sem `description` devolvia `null` onde o
+original devolvia `""`. Divergência de contrato pequena, não intencional e não relacionada à
+autenticação — corrigida em `validators/task_schema.py`, o que levou os formatos de 25/27 para 27/27.

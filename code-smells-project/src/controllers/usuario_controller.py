@@ -7,8 +7,11 @@ log = logging.getLogger(__name__)
 
 
 class UsuarioController:
-    def __init__(self, usuario_model):
+    def __init__(self, usuario_model, emissor_token):
         self._usuarios = usuario_model
+        # Emissor injetado: trocar o formato da credencial (JWT de biblioteca, sessão em banco)
+        # é mudar o argumento do composition root, não este arquivo.
+        self._emitir_token = emissor_token
 
     def listar(self, limite: int, offset: int) -> list[dict]:
         return self._usuarios.listar(limite=limite, offset=offset)
@@ -25,9 +28,10 @@ class UsuarioController:
         return usuario_id
 
     def autenticar(self, email: str, senha: str) -> dict:
+        """Autentica e emite a credencial usada pelas rotas protegidas."""
         usuario = self._usuarios.autenticar(email, senha)
         if usuario is None:
             log.info("login_falhou")
             raise UnauthorizedError("Email ou senha inválidos")
         log.info("login_ok usuario_id=%s", usuario["id"])
-        return usuario
+        return {"usuario": usuario, "token": self._emitir_token(usuario)}

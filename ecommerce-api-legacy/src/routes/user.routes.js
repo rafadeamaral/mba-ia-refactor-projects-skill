@@ -3,12 +3,13 @@
 const { Router } = require('express');
 
 const { asyncHandler } = require('../middlewares/async-handler');
-const { requerAutenticacao } = require('../middlewares/auth');
+const { requerChaveAdministrativa } = require('../middlewares/auth');
 
 module.exports = (userController) => {
     const router = Router();
 
-    router.delete('/users/:id', requerAutenticacao, asyncHandler(async (req, res) => {
+    // Deleção de usuário: rota destrutiva e irreversível (finding #6).
+    router.delete('/users/:id', requerChaveAdministrativa, asyncHandler(async (req, res) => {
         res.status(200).json(await userController.delete(Number(req.params.id)));
     }));
 

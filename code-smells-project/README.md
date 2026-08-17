@@ -68,7 +68,29 @@ não conhecem HTTP, models não montam resposta.
 
 ## Autenticação
 
-A API não possui autenticação — isso já era verdade antes da refatoração e implementá-la é
-funcionalidade nova, não refatoração. O que existe é o ponto de extensão pronto em
-`src/middlewares/auth.py` (`@requer_autenticacao`, `@requer_papel`), inativo enquanto
-`AUTH_ENABLED=false`.
+As rotas administrativas e mutáveis **exigem credencial**, e não há configuração que desligue a
+verificação — a versão anterior desta refatoração deixava os decorators atrás de `AUTH_ENABLED=false`,
+o que na prática mantinha a API aberta.
+
+`POST /login` devolve um token assinado com HMAC-SHA256 sobre a `SECRET_KEY`
+(`src/middlewares/auth.py`, sem dependência nova). Envie-o em `Authorization: Bearer <token>`.
+
+```bash
+TOKEN=$(curl -s -X POST localhost:5000/login \
+        -H 'Content-Type: application/json' \
+        -d '{"email":"admin@loja.com","senha":"admin123"}' | jq -r .token)
+
+curl localhost:5000/relatorios/vendas -H "Authorization: Bearer $TOKEN"
+```
+
+| Acesso | Endpoints |
+|---|---|
+| Público | `GET /`, `GET /health`, `GET /produtos`, `GET /produtos/busca`, `GET /produtos/<id>`, `POST /login`, `POST /usuarios` |
+| Autenticado | `GET /usuarios/<id>`, `POST /pedidos`, `GET /pedidos/usuario/<id>` |
+| Admin (`tipo = "admin"`) | `POST/PUT/DELETE /produtos`, `GET /pedidos`, `PUT /pedidos/<id>/status`, `GET /usuarios`, `GET /relatorios/vendas` |
+
+Sem credencial essas rotas respondem **401**; com credencial de papel insuficiente, **403**.
+
+Fora de escopo, e registrados no relatório: revogação de token, refresh token e rotação de chave.
+Como a `SECRET_KEY` é efêmera quando ausente do ambiente, os tokens deixam de valer a cada restart —
+defina `SECRET_KEY` no `.env` para evitar isso.
