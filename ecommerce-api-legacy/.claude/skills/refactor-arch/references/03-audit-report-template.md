@@ -75,8 +75,12 @@ Recommendation: <ação> (RF-xx)
 após a refatoração. Mudanças de contrato previstas: <lista, ou "nenhuma">.
 
 ### Fora de escopo
-<O que a refatoração não vai resolver e por quê — ex.: implementar JWT de verdade é feature, não
-refatoração; migração de banco; troca de dependência sem aprovação.>
+<O que a refatoração não vai resolver e por quê — ex.: migração de banco, troca de dependência sem
+aprovação, política de senha do produto, MFA, OAuth.>
+
+**Não cabe aqui:** fechar rota aberta e proteger endpoint administrativo. Emitir e verificar credencial
+com biblioteca padrão é correção de achado CRITICAL, não feature nova — vai executada na Fase 3 (RF-19).
+"Fora de escopo" não é onde se estaciona achado de segurança incômodo.
 
 ================================
 Total: <N> findings
@@ -141,10 +145,33 @@ serialização para DTOs (RF-05, RF-06, RF-04).
 
 ---
 
+## Status dos achados no relatório da Fase 3
+
+Quando a Fase 3 termina, o relatório ganha a coluna de status. São três valores, e só três:
+
+| Status | Critério — todos obrigatórios |
+|---|---|
+| **Resolvido** | O sinal de detecção não aparece mais no código **e** a Fase 3.2 mostra a execução que prova, rodando na configuração padrão do projeto |
+| **Mitigado parcialmente** | O risco caiu mas sobrou caminho de exploração ou lacuna operacional. O resíduo é nomeado em uma frase (ex.: "token sem revogação: credencial vazada vale até expirar") |
+| **Não resolvido** | Permanece como estava. Vai para "Gaps conhecidos" com motivo e recomendação |
+
+Regra que decide os casos difíceis: **a pergunta não é "o código para corrigir existe?", é "a correção
+está em vigor quando alguém roda o projeto?"**. Correção que depende de variável de ambiente não-padrão,
+de flag ligada manualmente ou de implementação futura não é "Resolvido" — na melhor das hipóteses é
+"Mitigado parcialmente", e frequentemente é "Não resolvido".
+
+A linha de contagem (`CRITICAL: n/n`) soma apenas os **Resolvido**. Achados em "Mitigado parcialmente"
+aparecem no numerador de nenhuma contagem e são listados à parte.
+
+---
+
 ## Erros comuns a evitar
 
 | Erro | Correção |
 |---|---|
+| Achado marcado resolvido porque o decorator existe | Exigir a requisição sem credencial devolvendo 401/403 na configuração padrão |
+| Achado de segurança movido para "Fora de escopo" por ser trabalhoso | Fora de escopo é para o que muda o produto (MFA, OAuth), não para o que fecha a porta |
+| "Mitigado" usado como sinônimo de resolvido na contagem | `n/n` conta só Resolvido; mitigação parcial é listada com o resíduo nomeado |
 | "O código está desorganizado" | Nomear o anti-pattern, o arquivo e a linha |
 | Um finding por ocorrência do mesmo problema | Agrupar por anti-pattern + arquivo |
 | Severidade inflada para engordar a lista | Aplicar a tabela; `print()` como log é LOW |

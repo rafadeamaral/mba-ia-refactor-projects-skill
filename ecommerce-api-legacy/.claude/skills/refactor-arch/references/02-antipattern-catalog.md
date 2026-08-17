@@ -1,6 +1,6 @@
 # Referência 2 — Catálogo de Anti-Patterns (Fase 2)
 
-38 anti-patterns organizados em cinco famílias, cada um com **sinais de detecção acionáveis**
+39 anti-patterns organizados em cinco famílias, cada um com **sinais de detecção acionáveis**
 (padrões de busca reais, não descrições vagas), severidade e o padrão de correção correspondente no
 playbook (`references/05-refactoring-playbook.md`).
 
@@ -24,7 +24,7 @@ playbook (`references/05-refactoring-playbook.md`).
 
 | Família | IDs | Tema |
 |---|---|---|
-| [SEC](#família-sec--segurança) | SEC-01…09 | Segurança e exposição de dados |
+| [SEC](#família-sec--segurança) | SEC-01…10 | Segurança e exposição de dados |
 | [ARCH](#família-arch--arquitetura) | ARCH-01…12 | Separação de responsabilidades, MVC, SOLID |
 | [PERF](#família-perf--performance-e-integridade-de-dados) | PERF-01…05 | Performance e integridade de dados |
 | [QUAL](#família-qual--qualidade-de-código) | QUAL-01…09 | Qualidade e legibilidade |
@@ -110,7 +110,8 @@ concatenação apenas de identificadores literais internos.
 - Papel modelado e nunca consultado: existe `is_admin()`/campo `role`/`tipo`, mas nenhum `if` o usa
 - Rotas `/admin/*` sem verificação
 
-**Correção:** RF-19 (guardas de rota) — e, no mínimo, registrar o gap explicitamente no relatório.
+**Correção:** RF-19 (guardas de rota) com emissão e verificação de credencial reais, **ativas na
+configuração padrão**. Criar o decorator e deixá-lo desligado não fecha este achado — ver SEC-10.
 
 ### SEC-07 · Debug ligado / erro verboso em produção — **HIGH**
 
@@ -137,6 +138,29 @@ estrutura interna e caminhos de arquivo.
 - `CORS(app)` sem `origins`, `cors()` sem opções, `Access-Control-Allow-Origin: *`
 - Ausência de `helmet`, rate limiting, limite de tamanho de body
 - `host="0.0.0.0"` combinado com debug ligado
+
+### SEC-10 · Guarda de segurança desligada por padrão — **CRITICAL** (mesma severidade do controle que ela finge exercer)
+
+O controle existe no código, parece implementado em revisão de diff, e não está em vigor em nenhuma
+execução real. É pior que a ausência declarada: some do radar da auditoria seguinte.
+
+**Sinais:**
+- Flag com default permissivo: `AUTH_ENABLED = os.getenv("AUTH_ENABLED", "false")`, `SKIP_AUTH ?? true`,
+  `if (!config.authEnabled) return next()`
+- Middleware que aplica o controle apenas dentro de um `if` de ambiente: `if env == "production"`
+- Verificador que lança `NotImplementedError` e um caminho paralelo que segue sem ele
+- Comentário admitindo a inércia: "ponto de extensão pronto", "basta ligar", "comportamento permanece
+  idêntico ao original"
+- Rota decorada com `@requer_autenticacao` respondendo 200 a `curl` sem nenhum cabeçalho — **este é o
+  teste que decide**, e vale mais que qualquer leitura do código
+
+**Impacto:** a rota administrativa continua anônima em produção, e o relatório de auditoria informa o
+contrário. O dano secundário é o relatório: uma vez que um achado é marcado resolvido sem estar, ninguém
+volta nele.
+
+**Correção:** ligar o controle por padrão e provar com requisição sem credencial (RF-19). Se por alguma
+razão ele não puder ser ligado, o achado original permanece **aberto** no relatório, com o resíduo
+nomeado — nunca contado como resolvido.
 
 ---
 

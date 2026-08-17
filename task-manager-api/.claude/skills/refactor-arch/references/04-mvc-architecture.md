@@ -177,7 +177,12 @@ src/
 7. **Dependências injetadas** — nada de `new Database()` dentro de regra de negócio.
 8. **Escritas relacionadas são transacionais** — tudo ou nada.
 9. **Saída filtrada por DTO** — o cliente recebe apenas o que deve receber.
-10. **Contrato preservado** — mesmos endpoints, status e formato de resposta.
+10. **Contrato preservado** — mesmos endpoints, status e formato de resposta, salvo as duas exceções de
+    segurança (parar de vazar dado sensível; fechar rota que estava aberta).
+11. **Guardas de acesso na fronteira, ligadas** — autenticação e autorização vivem em `middlewares/` e são
+    aplicadas na camada de rotas, junto da declaração do endpoint, para que a política seja legível ao
+    lado do path que ela protege. Guarda declarada e não aplicada, ou aplicada e desligada por padrão, é
+    ausência de guarda.
 
 ## 5. Anti-regras — o que *não* fazer na refatoração
 

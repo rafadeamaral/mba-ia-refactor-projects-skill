@@ -19,7 +19,14 @@ Skill de três fases que transforma um projeto legado em uma aplicação organiz
 4. **Adaptação ao ponto de partida.** Um monolito de 4 arquivos e um projeto que já tem `models/` e
    `routes/` exigem transformações diferentes. Detecte o que já existe antes de propor estrutura.
 5. **Segurança tem precedência.** Achados CRITICAL de segurança são corrigidos na Fase 3 mesmo quando a
-   correção é pequena perto da reestruturação.
+   correção é pequena perto da reestruturação. Quando a correção exige mudar o contrato (uma rota que
+   respondia 200 anonimamente passa a responder 401), a mudança é deliberada e vai em Breaking Changes —
+   segurança vence preservação de comportamento, e só nesses casos.
+6. **Correção inativa não fecha achado.** Um achado só é declarado resolvido quando a correção está em
+   vigor **na configuração padrão do projeto**, sem exportar nenhuma variável de ambiente extra, e a
+   Fase 3.2 mostra a execução que prova. Guarda atrás de flag desligada, decorator que só age com
+   `AUTH_ENABLED=true`, validação comentada e "ponto de extensão pronto" contam como **não resolvido**.
+   O relatório final tem obrigação de dizer isso com essas palavras.
 
 ## Arquivos de referência
 
@@ -28,7 +35,7 @@ Carregue sob demanda, na fase correspondente. Não leia todos de uma vez.
 | Arquivo | Quando ler |
 |---|---|
 | `references/01-project-analysis.md` | Fase 1 — heurísticas de detecção de stack, banco, domínio e arquitetura |
-| `references/02-antipattern-catalog.md` | Fase 2 — catálogo de 38 anti-patterns com sinais de detecção e severidade |
+| `references/02-antipattern-catalog.md` | Fase 2 — catálogo de 39 anti-patterns com sinais de detecção e severidade |
 | `references/03-audit-report-template.md` | Fase 2 — formato obrigatório do relatório |
 | `references/04-mvc-architecture.md` | Fase 3 — regras do alvo MVC e responsabilidade de cada camada |
 | `references/05-refactoring-playbook.md` | Fase 3 — 19 padrões de transformação com exemplos antes/depois |
@@ -150,8 +157,9 @@ Aplique os padrões do playbook na ordem abaixo. A ordem importa: cada passo dep
    finos que só traduzem HTTP ↔ chamada de controller. *(RF-07)*
 5. **Validação** — extrair as validações duplicadas para schemas/validators reutilizados por
    criação e atualização. *(RF-13)*
-6. **Middlewares** — error handler centralizado, exceções de domínio, logging estruturado, CORS restrito.
-   *(RF-09, RF-18)*
+6. **Middlewares** — error handler centralizado, exceções de domínio, logging estruturado, CORS restrito e
+   **guardas de autenticação/autorização ativas por padrão** nas rotas administrativas, destrutivas e
+   mutáveis identificadas na auditoria. *(RF-09, RF-18, RF-19)*
 7. **Correções pontuais** — transações, N+1, paginação, integridade referencial, APIs deprecated,
    constantes nomeadas, remoção de código morto. *(RF-10, RF-11, RF-12, RF-16, RF-17)*
 8. **Composition root** — `app.py`/`app.js` reduzido a montagem: criar app, carregar config, registrar
@@ -163,8 +171,12 @@ Regras durante a execução:
   destrutivos sem autenticação e credenciais versionadas saem. Registre a remoção no relatório final.
 - **Elimine código morto** identificado na auditoria (helpers, serviços e métodos nunca chamados) — ou
   passe a usá-lo, se ele for a implementação correta que as rotas duplicaram.
-- **Preserve nomes de endpoint, payloads e códigos de status.** Mudança de contrato só é aceitável para
-  remover vazamento de dado sensível (ex.: parar de devolver senha) — e deve ser destacada na saída.
+- **Preserve nomes de endpoint, payloads e códigos de status.** Mudança de contrato só é aceitável em dois
+  casos: remover vazamento de dado sensível (ex.: parar de devolver senha) e fechar rota que estava aberta
+  (200 anônimo → 401/403) — ambos destacados em Breaking Changes.
+- **Nunca entregue uma guarda desligada.** Se a rota precisa de credencial, a Fase 3 implementa a emissão e
+  a verificação da credencial e liga a guarda. Flag de bypass com default permissivo é proibida: se o
+  mecanismo de credencial não estiver configurado, a rota protegida nega o acesso — nunca o libera.
 - **Atualize os arquivos auxiliares** que apontam para caminhos antigos (`requirements.txt`,
   `package.json` `main`/`scripts`, `seed.py`, `README` do projeto, `.gitignore` para `.env`).
 
@@ -175,10 +187,26 @@ Validação é obrigatória e precisa de evidência real de execução. Rode e m
 1. **Import/parse** — a aplicação carrega sem erro de sintaxe ou import quebrado.
 2. **Boot** — o servidor sobe e fica ouvindo na porta esperada.
 3. **Endpoints** — exercite **todos** os endpoints do inventário da Fase 1 e compare status e formato com
-   o baseline de 3.0. Inclua ao menos um caminho de erro (404 e 400).
+   o baseline de 3.0. Inclua ao menos um caminho de erro (404 e 400). Rota que passou a exigir credencial
+   é exercitada **duas vezes**: sem credencial (tem de negar) e com credencial (tem de bater com o
+   baseline).
 4. **Anti-patterns residuais** — reexecute os greps dos findings CRITICAL/HIGH e confirme que zeraram.
+5. **Prova de mitigação — obrigatória para todo finding CRITICAL/HIGH de segurança.** Para cada um,
+   reexecute a requisição que o explorava, **com a configuração padrão do projeto** (nenhuma variável de
+   ambiente além do que o `.env.example` já traz), e cole a saída real. Sem essa saída, o achado não pode
+   ser contado como resolvido — vai para "Findings Not Resolved" com o motivo.
+
+   | Finding | Prova exigida |
+   |---|---|
+   | Rota administrativa/destrutiva aberta | `curl` sem credencial devolvendo 401/403, e com credencial devolvendo o baseline |
+   | SQL Injection | payload `' OR '1'='1' --` devolvendo 401/404/400, não 200 |
+   | Senha em texto claro | leitura direta da coluna no banco mostrando o hash |
+   | Segredo versionado | grep no fonte sem ocorrência, e a aplicação subindo lendo do ambiente |
+   | Dado sensível na resposta | corpo da resposta sem o campo |
 
 Se algo falhar, corrija e revalide. Não declare sucesso com teste vermelho — reporte o que ficou quebrado.
+Contagem honesta é requisito: é melhor um relatório que fecha 5 de 7 achados e nomeia os 2 restantes do
+que um que fecha 7 de 7 apoiado em correção que não está em vigor.
 
 **Saída obrigatória:**
 
@@ -191,14 +219,23 @@ PHASE 3: REFACTORING COMPLETE
 
 ## Findings Resolved
 CRITICAL: <n>/<n> | HIGH: <n>/<n> | MEDIUM: <n>/<n> | LOW: <n>/<n>
+(conta apenas achados com correção ativa na configuração padrão e prova de execução em 3.2)
+
+## Findings Not Resolved
+<#id — severidade — por que continua aberto — o que falta>
+<ou "Nenhum">
 
 ## Validation
   <✓|✗> Application boots without errors
   <✓|✗> All <N> endpoints respond (status + shape iguais ao baseline)
   <✓|✗> Error paths return 400/404 corretamente
+  <✓|✗> Rotas protegidas negam acesso sem credencial (401/403)
   <✓|✗> Zero CRITICAL/HIGH anti-patterns remaining
 
 ## Breaking Changes
 <lista, ou "Nenhuma — contrato da API preservado">
 ================================
 ```
+
+`Findings Not Resolved` é obrigatório e não pode ser omitido quando há achado aberto. Um relatório que
+lista `CRITICAL: 7/7` e nenhum gap é aceito apenas se cada um dos sete tiver prova em 3.2.

@@ -819,18 +819,56 @@ def reset_database(): cursor.execute("DELETE FROM pedidos"); ...
 Um reset de banco legítimo é um **script de manutenção** (`scripts/reset_db.py`), executado por quem tem
 acesso ao servidor — não um endpoint HTTP.
 
-**Proteger** o que precisa continuar existindo:
+**Proteger** o que precisa continuar existindo. A guarda tem de estar **em vigor na configuração padrão**:
+uma rota administrativa que continua respondendo 200 anonimamente depois da Fase 3 é um achado aberto,
+por mais bem escrito que esteja o decorator que ninguém ligou.
+
 ```python
-# middlewares/auth.py
+# ❌ o erro clássico: a guarda existe, o achado parece fechado, a rota continua aberta
+def requer_autenticacao(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not settings.AUTH_ENABLED:      # default false → decorator transparente
+            return fn(*args, **kwargs)
+        ...
+```
+
+Escolha o mecanismo pelo que o projeto **já tem**, não pelo que seria ideal:
+
+**Caso A — o projeto tem login e identidade de usuário.** Emita no login uma credencial verificável e
+exija-a nas rotas protegidas. Um token assinado com HMAC-SHA256 sobre a `SECRET_KEY` resolve com
+biblioteca padrão, sem dependência nova e sem tabela nova:
+
+```python
+# middlewares/auth.py — emissão e verificação reais, sem dependência externa
+import base64, hashlib, hmac, json, time
 from functools import wraps
+
+def _b64(dados: bytes) -> str:
+    return base64.urlsafe_b64encode(dados).rstrip(b"=").decode()
+
+def emitir_token(usuario_id: int, papel: str, segredo: str, ttl: int = 3600) -> str:
+    corpo = _b64(json.dumps({"sub": usuario_id, "papel": papel,
+                             "exp": int(time.time()) + ttl}, separators=(",", ":")).encode())
+    return f"{corpo}.{_b64(hmac.new(segredo.encode(), corpo.encode(), hashlib.sha256).digest())}"
+
+def resolver_token(cabecalho: str | None, segredo: str) -> dict | None:
+    if not cabecalho or not cabecalho.startswith("Bearer "):
+        return None
+    corpo, _, assinatura = cabecalho[7:].strip().partition(".")
+    esperada = _b64(hmac.new(segredo.encode(), corpo.encode(), hashlib.sha256).digest())
+    if not assinatura or not hmac.compare_digest(assinatura, esperada):  # tempo constante
+        return None
+    dados = json.loads(base64.urlsafe_b64decode(corpo + "=" * (-len(corpo) % 4)))
+    return None if dados.get("exp", 0) < time.time() else dados
 
 def requer_autenticacao(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        usuario = autenticar(request.headers.get("Authorization"))
-        if usuario is None:
+        dados = resolver_token(request.headers.get("Authorization"), settings.SECRET_KEY)
+        if dados is None:
             raise UnauthorizedError("Autenticação obrigatória")
-        g.usuario = usuario
+        g.usuario = dados
         return fn(*args, **kwargs)
     return wrapper
 
@@ -839,17 +877,62 @@ def requer_papel(*papeis):
         @wraps(fn)
         @requer_autenticacao
         def wrapper(*args, **kwargs):
-            if g.usuario.papel not in papeis:
+            if g.usuario.get("papel") not in papeis:
                 raise ForbiddenError("Permissão insuficiente")
             return fn(*args, **kwargs)
         return wrapper
     return decorator
 ```
 
-**Limite de escopo:** implementar emissão e verificação de JWT de verdade é **funcionalidade nova**, não
-refatoração. O que a Fase 3 deve fazer: remover a superfície indefensável, parar de devolver token falso
-como se fosse autenticação, deixar o ponto de extensão pronto (decorator/middleware) e registrar a
-implementação completa como recomendação em "Fora de escopo".
+**Caso B — o projeto não tem identidade, só rotas administrativas expostas.** Não invente um sistema de
+usuários: exija uma chave administrativa lida do ambiente, comparada em tempo constante. A regra que
+importa é o **fail-closed** — chave ausente significa rota inacessível, nunca rota liberada:
+
+```js
+// middlewares/auth.js
+const crypto = require('node:crypto');
+
+function comparar(a, b) {
+    const x = Buffer.from(a), y = Buffer.from(b);
+    return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
+function requerChaveAdministrativa(req, _res, next) {
+    // Sem chave configurada a rota fica fechada. O contrário — liberar quando falta
+    // configuração — é exatamente o bug que este playbook existe para impedir.
+    if (!config.adminApiKey) return next(new UnauthorizedError('Credencial administrativa inválida'));
+    const cabecalho = req.headers.authorization || '';
+    if (!cabecalho.startsWith('Bearer ') || !comparar(cabecalho.slice(7), config.adminApiKey)) {
+        return next(new UnauthorizedError('Credencial administrativa inválida'));
+    }
+    return next();
+}
+```
+
+**Quais rotas proteger.** Use a auditoria, não o palpite: toda rota administrativa (`/admin/*`,
+relatórios financeiros e gerenciais), toda rota destrutiva (`DELETE`), toda rota mutável (`POST`, `PUT`,
+`PATCH`) e toda leitura que exponha dado de terceiros (listagem de usuários, pedidos de outro usuário).
+Ficam públicos: health check, índice da API, login, cadastro e o catálogo que já era público por natureza
+do produto. Registre a decisão rota a rota no relatório — quem lê precisa poder discordar de um item
+específico.
+
+**Consequência esperada no contrato:** rotas que respondiam 200 anonimamente passam a responder 401 sem
+credencial. Isso **é** uma breaking change e vai listada como tal. Não é motivo para deixar a rota aberta;
+é motivo para documentar como obter a credencial.
+
+**Limite de escopo honesto.** Emitir e verificar credencial com biblioteca padrão está dentro do escopo —
+é o que fecha o achado. Ficam fora, e viram recomendação explícita: refresh token, revogação/blacklist,
+rotação de chave, MFA, OAuth e políticas de senha do produto. Declare esses resíduos como
+"Mitigado parcialmente", nunca como "Resolvido".
+
+**Como provar que fechou** (obrigatório na Fase 3.2):
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE localhost:3000/api/users/1        # 401
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE localhost:3000/api/users/1 \
+     -H "Authorization: Bearer $ADMIN_API_KEY"                                        # 200
+```
+Os dois números precisam aparecer no relatório. Só o segundo prova que não quebrou; só o primeiro prova
+que fechou.
 
 ---
 
